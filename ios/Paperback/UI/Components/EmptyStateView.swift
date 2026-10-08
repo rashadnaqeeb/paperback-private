@@ -9,6 +9,10 @@ struct EmptyStateView: View {
 	var body: some View {
 		VStack(spacing: 0) {
 			emptyContent
+			// TRANSLATORS: Button shown when no document is open that lists the books in the books folder
+			Button(t("Books")) { viewModel.navigation.showBooks = true }
+				.buttonStyle(.borderedProminent)
+				.padding()
 			if !viewModel.recentDocuments.isEmpty {
 				Divider()
 				recentList

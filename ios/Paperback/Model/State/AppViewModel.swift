@@ -30,6 +30,8 @@ final class AppViewModel {
 
 	let reading = ReadingController()
 
+	let booksFolder = BooksFolder()
+
 	var restorePreviousDocuments = true {
 		didSet { configManager.setAppBool(key: "restore_previous_documents", value: restorePreviousDocuments) }
 	}

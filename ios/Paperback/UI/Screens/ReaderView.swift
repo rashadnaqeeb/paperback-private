@@ -33,6 +33,9 @@ struct ReaderView: View {
 		.navigationDestination(isPresented: $navigation.showRecents) {
 			RecentDocumentsView().environment(viewModel)
 		}
+		.navigationDestination(isPresented: $navigation.showBooks) {
+			BooksView().environment(viewModel)
+		}
 		// TRANSLATORS: Title of the alert dialog showing the current document's word count
 		.alert(t("Word Count"), isPresented: $navigation.showWordCount) {
 			// TRANSLATORS: Button dismissing the word count alert
@@ -130,6 +133,11 @@ struct ReaderView: View {
 	@ToolbarContentBuilder
 	private var readerToolbar: some ToolbarContent {
 		ToolbarItemGroup(placement: .topBarTrailing) {
+			Button { viewModel.navigation.showBooks = true } label: {
+				Image(systemName: "books.vertical")
+			}
+			// TRANSLATORS: Accessibility label for the toolbar button that lists the books in the books folder
+			.accessibilityLabel(t("Books"))
 			Button { viewModel.navigation.showFilePicker = true } label: {
 				Image(systemName: "folder")
 			}

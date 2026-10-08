@@ -13,6 +13,7 @@ final class NavigationRouter {
 	var goToInitialMode: GoToMode = .line
 	var showSettings = false
 	var showRecents = false
+	var showBooks = false
 	var showWordCount = false
 	var showDocumentInfo = false
 	var showExportDocument = false
