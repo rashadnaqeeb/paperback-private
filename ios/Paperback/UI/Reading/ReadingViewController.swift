@@ -10,7 +10,7 @@ struct ReadingMenuItem {
 /// links, keeps the jump-back stack the two-finger scrub walks, opens the menu on double-tap, and turns pages by swipe
 /// for reading without VoiceOver.
 @MainActor
-final class ReadingViewController: UIViewController {
+final class ReadingViewController: UIViewController, UIScrollViewAccessibilityDelegate {
 	private let bookView: BookView
 	private var model: BookModel { bookView.model }
 	private var currentUnit: Int
@@ -18,6 +18,9 @@ final class ReadingViewController: UIViewController {
 	/// The book position of the unit the reader is on, whenever it changes.
 	var onPositionChange: ((Int64) -> Void)?
 	var onMenu: (() -> Void)?
+	var bookmarkPositions: () -> [Int64] = { [] } {
+		didSet { bookView.bookmarkPositions = bookmarkPositions }
+	}
 
 	/// Where each jump the app made left from, newest last, so the scrub can go back.
 	private var jumpBack: [Int] = []
@@ -59,6 +62,10 @@ final class ReadingViewController: UIViewController {
 		bookView.onRotorJump = { [weak self] from in
 			self?.pushJumpBack(from)
 		}
+		bookView.onPageScroll = { [weak self] forward in
+			self?.turnPage(forward: forward) ?? false
+		}
+		bookView.delegate = self
 		let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
 		view.addGestureRecognizer(tap)
 		for direction in [UISwipeGestureRecognizer.Direction.left, .right] {
@@ -154,6 +161,38 @@ final class ReadingViewController: UIViewController {
 		case .notFound:
 			break
 		}
+	}
+
+	// MARK: Pages
+
+	/// What the three-finger tap speaks: the book's page when it has its own, and how far through it the reader is.
+	func status() -> String {
+		let position = model.position(ofUnit: currentUnit)
+		let percent = model.session.getStatusInfo(position: position).percentage
+		// TRANSLATORS: How far through the book the reader is, spoken by the three-finger tap; {} is a whole number
+		let read = t("{} percent").replacingOccurrences(of: "{}", with: "\(percent)")
+		guard let page = model.page(atPosition: position), !model.pageLabels[page].isEmpty else { return read }
+		// TRANSLATORS: The book's printed page number the reader is on, spoken by the three-finger tap; {} is the number as printed, which may be a roman numeral
+		return t("Page {}").replacingOccurrences(of: "{}", with: model.pageLabels[page]) + ", " + read
+	}
+
+	func accessibilityScrollStatus(for scrollView: UIScrollView) -> String? {
+		status()
+	}
+
+	/// Moves to the start of the next or previous page: the book's own pages when it has them, else the screen's.
+	private func turnPage(forward: Bool) -> Bool {
+		let target = model.pagePositions.isEmpty
+			? bookView.visualPageStop(forward: forward)
+			: model.pageStop(from: currentUnit, forward: forward)
+		guard let target else {
+			// The same status again tells VoiceOver it is at the edge.
+			UIAccessibility.post(notification: .pageScrolled, argument: status())
+			return false
+		}
+		move(to: target)
+		UIAccessibility.post(notification: .pageScrolled, argument: status())
+		return true
 	}
 
 	// MARK: Without VoiceOver

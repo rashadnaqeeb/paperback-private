@@ -12,6 +12,7 @@ struct ReadingScreen: UIViewControllerRepresentable {
 		controller.onPositionChange = { reading.readerMoved(to: $0) }
 		let navigation = viewModel.navigation
 		controller.onMenu = { navigation.showBookMenu = true }
+		controller.bookmarkPositions = { [weak viewModel] in viewModel?.bookmarks().map(\.start) ?? [] }
 		reading.onJump = { [weak controller] position in
 			controller?.jump(toPosition: position)
 		}

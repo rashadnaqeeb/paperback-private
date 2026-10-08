@@ -11,8 +11,11 @@ import UIKit
 /// The container's own elements are the book's blocks: a paragraph, or a list or table holding its items or cells.
 /// The rotors are the app's own, worked out from the book model's maps, never by VoiceOver scanning elements, which
 /// lags out on a whole book.
+///
+/// It is a scroll view only so VoiceOver asks it for the three-finger tap's status and sends it three-finger flicks;
+/// it never scrolls, since pages turn by laying out again.
 @MainActor
-final class BookView: UIView {
+final class BookView: UIScrollView {
 	let model: BookModel
 
 	private(set) var focusedUnit = 0
@@ -36,12 +39,21 @@ final class BookView: UIView {
 	var onFollowLink: ((Int, Int) -> Void)?
 	/// A rotor jump the scrub should be able to undo, with the unit it left.
 	var onRotorJump: ((Int) -> Void)?
+	/// A three-finger flick, forward or back, reporting whether there was a page to go to.
+	var onPageScroll: ((Bool) -> Bool)?
+	/// Where the reader's bookmarks are, for the Bookmarks rotor.
+	var bookmarkPositions: () -> [Int64] = { [] }
 
 	init(model: BookModel) {
 		self.model = model
 		super.init(frame: .zero)
 		isAccessibilityElement = false
 		backgroundColor = .systemBackground
+		isScrollEnabled = false
+		scrollsToTop = false
+		showsVerticalScrollIndicator = false
+		showsHorizontalScrollIndicator = false
+		contentInsetAdjustmentBehavior = .never
 		sizingLabel.numberOfLines = 0
 		registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (view: BookView, _) in
 			view.heights.removeAll()
@@ -203,8 +215,17 @@ final class BookView: UIView {
 		}
 	}
 
+	/// Pinned: VoiceOver may try to scroll toward an element off the page, which would only slide the drawn page away.
+	override var contentOffset: CGPoint {
+		get { .zero }
+		set { super.contentOffset = .zero }
+	}
+
+	override func setContentOffset(_ contentOffset: CGPoint, animated: Bool) {}
+
 	override func layoutSubviews() {
 		super.layoutSubviews()
+		contentSize = bounds.size
 		showPage(from: pageStart)
 		// A taller text size or a rotation can push the focused unit off the page it was on.
 		if !isOnPage(focusedUnit) { showPage(from: focusedUnit) }
@@ -377,6 +398,22 @@ final class BookView: UIView {
 		onEscape?() ?? false
 	}
 
+	/// Three-finger flicks up and down move by page. Read All's own page turns (next and previous) are left alone:
+	/// the page already follows focus.
+	override func accessibilityScroll(_ direction: UIAccessibilityScrollDirection) -> Bool {
+		switch direction {
+		case .up: onPageScroll?(true) ?? false
+		case .down: onPageScroll?(false) ?? false
+		default: false
+		}
+	}
+
+	/// The first unit of the visual page after this one, or of the one before.
+	func visualPageStop(forward: Bool) -> Int? {
+		if forward { return lastUnitOnPage + 1 < model.count ? lastUnitOnPage + 1 : nil }
+		return pageStart > 0 ? pageStart(endingAt: pageStart - 1) : nil
+	}
+
 	/// Touch exploration asks only about the page showing; left to itself, VoiceOver would walk every element in the
 	/// book to find the one under a finger.
 	@available(iOS 18.0, *)
@@ -407,6 +444,10 @@ final class BookView: UIView {
 		unitRotor(systemType: .table, isJump: false) { view, from, forward in view.structureStop(view.model.tableUnits, from: from, forward: forward) },
 		unitRotor(systemType: .list, isJump: false) { view, from, forward in view.structureStop(view.model.listUnits, from: from, forward: forward) },
 		unitRotor(systemType: .image, isJump: false) { view, from, forward in BookModel.stop(in: view.model.imageUnits, from: from, forward: forward) },
+		// TRANSLATORS: Name of the VoiceOver rotor setting that moves between the reader's bookmarks in a book
+		unitRotor(name: t("Bookmarks"), isJump: true) { view, from, forward in
+			BookModel.stop(in: Set(view.bookmarkPositions().map(view.model.unit(forPosition:))).sorted(), from: from, forward: forward)
+		},
 	]
 
 	/// The next or previous list or table, counted from the start of the one the origin is inside.

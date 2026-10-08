@@ -68,6 +68,9 @@ final class BookModel {
 	/// The first unit of each list and of each table, one rotor stop per structure.
 	private(set) var listUnits: [Int] = []
 	private(set) var tableUnits: [Int] = []
+	/// The book's own pages: where each starts, in buffer order, and its printed number.
+	private(set) var pagePositions: [Int64] = []
+	private(set) var pageLabels: [String] = []
 	/// Every link in reading order, as its unit and its index among that unit's links.
 	private(set) var linkStops: [(unit: Int, link: Int)] = []
 
@@ -108,6 +111,9 @@ final class BookModel {
 			case .link: links[line, default: []].append(marker)
 			case .list: lists[line] = max(lists[line] ?? 0, marker.position + marker.length)
 			case .table: tableMarkers[line] = marker
+			case .pageBreak:
+				pagePositions.append(marker.position)
+				pageLabels.append(marker.text)
 			default: break
 			}
 		}
@@ -185,6 +191,17 @@ final class BookModel {
 			units.append(BookUnit(kind: .tableRow(table: index, row: row), line: line, text: text, links: []))
 			blockOfUnit.append(blocks.count - 1)
 		}
+	}
+
+	/// The book's page holding a position, as its index into the page lists.
+	func page(atPosition position: Int64) -> Int? {
+		pagePositions.lastIndex { $0 <= position }
+	}
+
+	/// The first unit of the book's next page after `unit`, or of the page before it.
+	func pageStop(from unit: Int, forward: Bool) -> Int? {
+		let stops = pagePositions.map(unit(forPosition:))
+		return BookModel.stop(in: stops, from: unit, forward: forward)
 	}
 
 	/// The first unit of the block after or before the one holding `unit`.
