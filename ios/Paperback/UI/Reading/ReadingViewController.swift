@@ -85,7 +85,7 @@ final class ReadingViewController: UIViewController {
 	}
 
 	private func postRestoreFocus() {
-		guard let element = bookView.element(forUnit: restoreTarget) else { return }
+		guard let element = bookView.focusTarget(forUnit: restoreTarget) else { return }
 		UIAccessibility.post(notification: .screenChanged, argument: element)
 	}
 
@@ -137,7 +137,7 @@ final class ReadingViewController: UIViewController {
 		bookView.reveal(unit)
 		setCurrent(bookView.focusedUnit)
 		restoreTarget = bookView.focusedUnit
-		guard view.window != nil, let element = bookView.element(forUnit: restoreTarget) else { return }
+		guard view.window != nil, let element = bookView.focusTarget(forUnit: restoreTarget) else { return }
 		UIAccessibility.post(notification: .layoutChanged, argument: element)
 	}
 

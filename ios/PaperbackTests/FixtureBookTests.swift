@@ -40,5 +40,11 @@ final class FixtureBookTests: XCTestCase {
 		}
 		XCTAssertEqual(mismatches, 0)
 		XCTAssertGreaterThan(model.imageUnits.count, 50)
+		// Nested lists fold into the list holding them, so there are fewer lists than list markers, but every item is in one.
+		XCTAssertGreaterThan(model.listUnits.count, 50)
+		XCTAssertGreaterThan(model.units.filter { $0.kind == .listItem }.count, 4000)
+		// The Prize's four tables: an author page and three data tables.
+		XCTAssertEqual(model.tables.count, 4)
+		XCTAssertTrue(model.tables.contains { $0.caption.hasPrefix("German Oil Supply") && $0.columnCount == 5 })
 	}
 }
