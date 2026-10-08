@@ -297,11 +297,19 @@ final class BookViewTests: XCTestCase {
 		XCTAssertEqual(image?.accessibilityLabel, "Map")
 	}
 
-	func testTheParagraphsRotorMovesOneUnit() {
-		let view = structuredView()
-		let paragraphs = view.accessibilityCustomRotors?.first { $0.name == t("Paragraphs") }
-		let next = search(paragraphs, from: view.element(forUnit: 1)) as? ParagraphElement
-		XCTAssertEqual(next?.unit, 2)
+	func testOnlyTheRotorsTheBookHasSomethingForAreOffered() {
+		let rotors = structuredView().accessibilityCustomRotors ?? []
+		XCTAssertEqual(rotors.map(\.systemRotorType), [.heading, .link, .image])
+		XCTAssertEqual(view(paragraphs: 5).accessibilityCustomRotors?.count, 0)
+	}
+
+	func testTheBookmarksRotorAppearsOnceThereIsABookmark() {
+		let view = view(paragraphs: 5)
+		var positions: [Int64] = []
+		view.bookmarkPositions = { positions }
+		XCTAssertFalse(view.accessibilityCustomRotors?.contains { $0.name == t("Bookmarks") } ?? true)
+		positions = [0]
+		XCTAssertTrue(view.accessibilityCustomRotors?.contains { $0.name == t("Bookmarks") } ?? false)
 	}
 
 	func testFollowingALinkAsksTheBookView() {

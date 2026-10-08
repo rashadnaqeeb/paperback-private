@@ -258,13 +258,6 @@ final class BookModel {
 		label.contains(" ") ? label : t("Page {}").replacingOccurrences(of: "{}", with: label)
 	}
 
-	/// The first unit of the block after or before the one holding `unit`.
-	func blockStart(from unit: Int, forward: Bool) -> Int? {
-		guard blockOfUnit.indices.contains(unit) else { return nil }
-		let block = blockOfUnit[unit] + (forward ? 1 : -1)
-		return blocks.indices.contains(block) ? blocks[block].units.lowerBound : nil
-	}
-
 	/// Places a link marker in the unit's text. Its marker carries no length, so the link runs for its text.
 	private static func link(_ marker: LineMarker, lineStart: Int64, leading: Int, in text: String) -> BookLink? {
 		let scalars = text.unicodeScalars

@@ -438,24 +438,39 @@ final class BookView: UIScrollView {
 
 	// MARK: Rotors
 
+	/// Only the rotors the book has something for, so a book without tables offers no Tables rotor. Asked again each
+	/// time focus lands, which keeps Bookmarks current as bookmarks come and go.
 	override var accessibilityCustomRotors: [UIAccessibilityCustomRotor]? {
-		get { rotors }
+		get {
+			var present: [UIAccessibilityCustomRotor] = []
+			if !model.headingUnits.isEmpty { present.append(headingsRotor) }
+			if !model.linkStops.isEmpty { present.append(linksRotor) }
+			if !model.tableUnits.isEmpty { present.append(tablesRotor) }
+			if !model.listUnits.isEmpty { present.append(listsRotor) }
+			if !model.imageUnits.isEmpty { present.append(imagesRotor) }
+			if !bookmarkPositions().isEmpty { present.append(bookmarksRotor) }
+			return present
+		}
 		set {}
 	}
 
-	private lazy var rotors: [UIAccessibilityCustomRotor] = [
-		// TRANSLATORS: Name of the VoiceOver rotor setting that moves by paragraph in a book; a list or table counts as one
-		unitRotor(name: t("Paragraphs"), isJump: false) { view, from, forward in view.model.blockStart(from: from, forward: forward) },
-		unitRotor(systemType: .heading, isJump: true) { view, from, forward in BookModel.stop(in: view.model.headingUnits, from: from, forward: forward) },
-		linkRotor(),
-		unitRotor(systemType: .table, isJump: false) { view, from, forward in view.structureStop(view.model.tableUnits, from: from, forward: forward) },
-		unitRotor(systemType: .list, isJump: false) { view, from, forward in view.structureStop(view.model.listUnits, from: from, forward: forward) },
-		unitRotor(systemType: .image, isJump: false) { view, from, forward in BookModel.stop(in: view.model.imageUnits, from: from, forward: forward) },
-		// TRANSLATORS: Name of the VoiceOver rotor setting that moves between the reader's bookmarks in a book
-		unitRotor(name: t("Bookmarks"), isJump: true) { view, from, forward in
-			BookModel.stop(in: Set(view.bookmarkPositions().map(view.model.unit(forPosition:))).sorted(), from: from, forward: forward)
-		},
-	]
+	private lazy var headingsRotor = unitRotor(systemType: .heading, isJump: true) { view, from, forward in
+		BookModel.stop(in: view.model.headingUnits, from: from, forward: forward)
+	}
+	private lazy var linksRotor = linkRotor()
+	private lazy var tablesRotor = unitRotor(systemType: .table, isJump: false) { view, from, forward in
+		view.structureStop(view.model.tableUnits, from: from, forward: forward)
+	}
+	private lazy var listsRotor = unitRotor(systemType: .list, isJump: false) { view, from, forward in
+		view.structureStop(view.model.listUnits, from: from, forward: forward)
+	}
+	private lazy var imagesRotor = unitRotor(systemType: .image, isJump: false) { view, from, forward in
+		BookModel.stop(in: view.model.imageUnits, from: from, forward: forward)
+	}
+	// TRANSLATORS: Name of the VoiceOver rotor setting that moves between the reader's bookmarks in a book
+	private lazy var bookmarksRotor = unitRotor(name: t("Bookmarks"), isJump: true) { view, from, forward in
+		BookModel.stop(in: Set(view.bookmarkPositions().map(view.model.unit(forPosition:))).sorted(), from: from, forward: forward)
+	}
 
 	/// The next or previous list or table, counted from the start of the one the origin is inside.
 	private func structureStop(_ stops: [Int], from: Int, forward: Bool) -> Int? {

@@ -210,19 +210,6 @@ final class ListAndTableTests: XCTestCase {
 		return rotor?.itemSearchBlock(predicate)?.targetElement
 	}
 
-	func testTheParagraphsRotorStepsOverAWholeListAndTable() {
-		let view = view()
-		let paragraphs = view.accessibilityCustomRotors?.first { $0.name == t("Paragraphs") }
-		let toList = search(paragraphs, from: view.element(forUnit: 0)) as? ParagraphElement
-		XCTAssertEqual(toList?.unit, 1)
-		let toCaption = search(paragraphs, from: view.element(forUnit: 1)) as? ParagraphElement
-		XCTAssertEqual(toCaption?.unit, 3)
-		let toTable = search(paragraphs, from: toCaption) as? TableCellElement
-		XCTAssertEqual(toTable?.row, 0)
-		let toOutro = search(paragraphs, from: toTable) as? ParagraphElement
-		XCTAssertEqual(toOutro?.unit, 7)
-	}
-
 	func testTheTablesAndListsRotorsStopOncePerStructure() {
 		let view = view()
 		let tables = view.accessibilityCustomRotors?.first { $0.systemRotorType == .table }
