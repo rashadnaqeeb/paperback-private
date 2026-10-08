@@ -2,6 +2,8 @@ use std::{collections::HashSet, sync::Mutex};
 
 use crate::{config::ConfigManager, parser::ParserRegistry};
 
+mod bookmarks;
+
 /// Thread-safe wrapper around `ConfigManager` for `UniFFI` exposure.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
 pub struct ConfigManagerFfi {
