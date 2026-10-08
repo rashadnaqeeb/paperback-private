@@ -36,6 +36,8 @@ struct PlayerView: View {
 			}
 			Spacer()
 		}
+		// The scrub is the standard way out of a screen, so it leaves the book.
+		.accessibilityAction(.escape) { viewModel.closeBook() }
 	}
 
 	/// The line under the reading position, shown small beneath the narrated text as a place marker.

@@ -14,4 +14,5 @@ final class NavigationRouter {
 	var showDocumentInfo = false
 	var showSleepTimer = false
 	var showElements = false
+	var showBookMenu = false
 }

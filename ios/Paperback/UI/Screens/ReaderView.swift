@@ -14,8 +14,6 @@ struct ReaderView: View {
 			.toolbar(viewModel.reading.hasAudio ? .visible : .hidden, for: .navigationBar)
 			.toolbar { readerToolbar }
 			.safeAreaInset(edge: .bottom) { bottomBar }
-			// The scrub is the standard way out of a screen, so it leaves the book too.
-			.accessibilityAction(.escape) { viewModel.closeBook() }
 			.navigationDestination(isPresented: $navigation.showToc) {
 				TocView()
 			}
@@ -36,6 +34,21 @@ struct ReaderView: View {
 			}
 			.navigationDestination(isPresented: $navigation.showElements) {
 				ElementsView()
+			}
+			// TRANSLATORS: Title of the in-book menu, opened by double-tapping a paragraph
+			.confirmationDialog(viewModel.book?.title ?? t("Menu"), isPresented: $navigation.showBookMenu, titleVisibility: .visible) {
+				// TRANSLATORS: In-book menu item that closes the book and returns to the list of books
+				Button(t("Exit Book")) { viewModel.closeBook() }
+				// TRANSLATORS: Menu item to open the document's table of contents
+				Button(t("Table of Contents")) { navigation.showToc = true }
+				// TRANSLATORS: Menu item to open find-in-document search
+				Button(t("Find")) { navigation.showFind = true }
+				// TRANSLATORS: Menu item to jump to a specific page, line, or percentage in the document
+				Button(t("Go To...")) { navigation.showGoTo = true }
+				// TRANSLATORS: Menu item to show document metadata (title, author, format, etc.)
+				Button(t("Document Info")) { navigation.showDocumentInfo = true }
+				// TRANSLATORS: Menu item to open the app's settings
+				Button(t("Settings")) { navigation.showSettings = true }
 			}
 	}
 
