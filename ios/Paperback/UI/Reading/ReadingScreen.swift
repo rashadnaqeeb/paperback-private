@@ -15,6 +15,9 @@ struct ReadingScreen: UIViewControllerRepresentable {
 		reading.onJump = { [weak controller] position in
 			controller?.jump(toPosition: position)
 		}
+		reading.onRefocus = { [weak controller] in
+			controller?.restoreFocus()
+		}
 		return controller
 	}
 

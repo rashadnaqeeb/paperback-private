@@ -40,6 +40,8 @@ final class ReadingController {
 	var currentSegmentText: String = ""
 	/// Set by the reading screen while it shows, to move it to a position the reader jumped to.
 	@ObservationIgnored var onJump: ((Int64) -> Void)?
+	/// Set by the reading screen while it shows, to put VoiceOver back on the reader's paragraph after the menu closes.
+	@ObservationIgnored var onRefocus: (() -> Void)?
 	var currentNavUnit: NavUnit = .segment(.section)
 	// The structural unit the FFI is asked for. Find isn't one, so it reads as paragraph: that's
 	// what a match's surrounding context is spoken as.

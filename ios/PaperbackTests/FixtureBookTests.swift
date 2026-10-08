@@ -4,10 +4,34 @@ import XCTest
 /// Real books from the fixture folder, skipped when it is absent (any machine but Rashad's Mac).
 @MainActor
 final class FixtureBookTests: XCTestCase {
-	private func open(_ name: String) throws -> DocumentSession {
+	private func path(_ name: String) throws -> String {
 		let path = NSHomeDirectory().components(separatedBy: "/Library/Developer").first! + "/Documents/home/books/\(name)"
 		try XCTSkipUnless(FileManager.default.fileExists(atPath: path), "fixture books not present")
-		return try DocumentSession.newFfi(filePath: path, password: "", forcedExtension: "", renderTablesInline: false)
+		return path
+	}
+
+	private func open(_ name: String) throws -> DocumentSession {
+		try DocumentSession.newFfi(filePath: path(name), password: "", forcedExtension: "", renderTablesInline: false)
+	}
+
+	func testABookmarkIsLabelledWithItsChapterAndOpeningWordsAndCanBeRenamedAndDeleted() throws {
+		let viewModel = AppViewModel()
+		viewModel.openBook(url: URL(fileURLWithPath: try path("The_Prize_rashad_naqeeb.epub")))
+		defer { viewModel.closeBook() }
+		let session = try XCTUnwrap(viewModel.activeSession)
+		let chapter = try XCTUnwrap(session.getToc().first { $0.title.contains("Dedication") })
+		viewModel.reading.readerMoved(to: chapter.position + 1)
+		for old in viewModel.bookmarks() { viewModel.deleteBookmark(old) }
+		viewModel.addBookmark()
+		let mark = try XCTUnwrap(viewModel.bookmarks().first)
+		XCTAssertEqual(mark.start, mark.end)
+		XCTAssertTrue(viewModel.bookmarkLabel(mark).hasPrefix("Dedication"), viewModel.bookmarkLabel(mark))
+		viewModel.renameBookmark(mark, to: "Start here")
+		XCTAssertEqual(viewModel.bookmarks().map(\.note), ["Start here"])
+		viewModel.deleteBookmark(mark)
+		XCTAssertTrue(viewModel.bookmarks().isEmpty)
+		XCTAssertEqual(viewModel.chapterTitle(at: chapter.position), chapter.title)
+		XCTAssertEqual(viewModel.percentRead, 0)
 	}
 
 	func testWarAndPeaceOpensQuicklyAndEveryUnitMapsBackToItself() throws {

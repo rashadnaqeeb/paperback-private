@@ -115,12 +115,65 @@ final class AppViewModel {
 		guard book != nil else { return }
 		reading.narration?.detach()
 		reading.onJump = nil
+		reading.onRefocus = nil
 		reading.cancelSleepTimer()
 		reading.activeSearchQuery = nil
 		configManager.flush()
 		UserDefaults.standard.removeObject(forKey: Self.openBookKey)
 		book = nil
 		reading.updateNowPlaying()
+	}
+
+	// MARK: Bookmarks and where the reader is
+
+	private var bookPath: String? { book?.url.path(percentEncoded: false) }
+
+	/// The open book's bookmarks in position order.
+	func bookmarks() -> [BookmarkFfi] {
+		guard let bookPath else { return [] }
+		return configManager.getBookmarksFfi(path: bookPath)
+	}
+
+	/// Bookmarks the paragraph being read with an automatic label, never asking for one. Start and end are the same,
+	/// which the desktop reads as the whole line.
+	func addBookmark() {
+		guard let bookPath else { return }
+		let position = reading.position
+		configManager.addBookmarkFfi(path: bookPath, start: position, end: position, note: automaticLabel(at: position))
+		configManager.flush()
+	}
+
+	func renameBookmark(_ bookmark: BookmarkFfi, to name: String) {
+		guard let bookPath else { return }
+		configManager.updateBookmarkNoteFfi(path: bookPath, start: bookmark.start, end: bookmark.end, note: name.trimmingCharacters(in: .whitespaces))
+		configManager.flush()
+	}
+
+	func deleteBookmark(_ bookmark: BookmarkFfi) {
+		guard let bookPath else { return }
+		configManager.removeBookmarkFfi(path: bookPath, start: bookmark.start, end: bookmark.end)
+		configManager.flush()
+	}
+
+	/// A bookmark's name, or, for one made elsewhere without a note, the label it would have been given here.
+	func bookmarkLabel(_ bookmark: BookmarkFfi) -> String {
+		bookmark.note.isEmpty ? automaticLabel(at: bookmark.start) : bookmark.note
+	}
+
+	/// The chapter and the paragraph's opening words.
+	private func automaticLabel(at position: Int64) -> String {
+		let words = (activeSession?.getLineText(position: position) ?? "").split(whereSeparator: \.isWhitespace).prefix(8).joined(separator: " ")
+		guard let chapter = chapterTitle(at: position), chapter != words else { return words }
+		return words.isEmpty ? chapter : "\(chapter): \(words)"
+	}
+
+	/// The table of contents entry the position is in.
+	func chapterTitle(at position: Int64) -> String? {
+		activeSession?.getToc().last { $0.position <= position }?.title
+	}
+
+	var percentRead: Int {
+		Int(activeSession?.getStatusInfo(position: reading.position).percentage ?? 0)
 	}
 
 	private func updatePosition(_ position: Int64) {
