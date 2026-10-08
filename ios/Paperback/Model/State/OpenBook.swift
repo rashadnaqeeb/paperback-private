@@ -4,7 +4,6 @@ import Foundation
 struct OpenBook: Equatable {
 	var title: String
 	var url: URL
-	var lineScrollIndex: Int = 0
 	var currentPosition: Int64 = 0
 	var session: DocumentSession?
 

@@ -55,7 +55,6 @@ final class AppViewModel {
 		reading.start()
 		NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)
 			.sink { [weak self] _ in
-				self?.reading.saveTextModePosition()
 				self?.configManager.flush()
 			}
 			.store(in: &cancellables)
@@ -114,8 +113,8 @@ final class AppViewModel {
 	/// in the config: every move writes it there.
 	func closeBook() {
 		guard book != nil else { return }
-		reading.saveTextModePosition()
 		reading.narration?.detach()
+		reading.onJump = nil
 		reading.cancelSleepTimer()
 		reading.activeSearchQuery = nil
 		configManager.flush()
@@ -135,11 +134,6 @@ final class AppViewModel {
 
 extension AppViewModel: ReadingContext {
 	var activeTitle: String? { book?.title }
-
-	var activeLineScrollIndex: Int {
-		get { book?.lineScrollIndex ?? 0 }
-		set { book?.lineScrollIndex = newValue }
-	}
 
 	func persistPosition(_ position: Int64) {
 		updatePosition(position)

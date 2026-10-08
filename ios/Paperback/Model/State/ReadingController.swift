@@ -3,12 +3,11 @@ import UIKit
 import MediaPlayer
 
 // The book state reading needs but does not own: which book is open, and where its reading
-// position and text-mode scroll offset get stored.
+// position gets stored.
 @MainActor
 protocol ReadingContext: AnyObject {
 	var activeSession: DocumentSession? { get }
 	var activeTitle: String? { get }
-	var activeLineScrollIndex: Int { get set }
 	func persistPosition(_ position: Int64)
 }
 
@@ -27,9 +26,6 @@ final class ReadingController {
 		setupRemoteCommands()
 	}
 
-	// Tracks the first visible 0-indexed line in TextModeView; updated eagerly while scrolling.
-	var textModeFirstLine: Int = 0
-
 	/// A recorded book's own narration. Set by AppViewModel, which owns the config it persists
 	/// playback position to.
 	var narration: RecordedNarration?
@@ -42,6 +38,8 @@ final class ReadingController {
 	var isPlaying: Bool { hasAudio && narration?.isPlaying == true }
 	var position: Int64 = 0
 	var currentSegmentText: String = ""
+	/// Set by the reading screen while it shows, to move it to a position the reader jumped to.
+	@ObservationIgnored var onJump: ((Int64) -> Void)?
 	var currentNavUnit: NavUnit = .segment(.section)
 	// The structural unit the FFI is asked for. Find isn't one, so it reads as paragraph: that's
 	// what a match's surrounding context is spoken as.
@@ -187,7 +185,8 @@ final class ReadingController {
 		// The Find screen stays up and VoiceOver focus stays in it, so the announcement is the
 		// only sign the reading position moved at all.
 		if let match = findMatch(forward: forward, skipCurrent: repeated) {
-			jump(to: match, announce: true)
+			jump(to: match, announce: false)
+			announceNavigationCue(currentSegmentText)
 		} else if repeated {
 			// TRANSLATORS: Announced when stepping to the next/previous Find match runs off the end of the document
 			announce(t("No more matches."))
@@ -254,21 +253,25 @@ final class ReadingController {
 	}
 
 	// Lands the reader somewhere else in the book. The recording moves with it, or the reader
-	// would go on listening to where they used to be; the text view scrolls there when it next
-	// appears. The screen the reader picked from is dismissing and nothing else reports the move,
-	// so a jump they asked for says where they arrived.
+	// would go on listening to where they used to be; in the player, nothing else reports the
+	// move, so a jump the reader asked for says where they arrived. The reading screen moves
+	// VoiceOver to the paragraph instead, which reads it.
 	private func jump(to newPosition: Int64, announce shouldAnnounce: Bool) {
 		position = newPosition
 		context?.persistPosition(newPosition)
 		refreshCurrentSegment()
 		if hasAudio, let narration {
 			narration.seekToPosition(newPosition)
-		} else if let session = activeSession {
-			let line = max(0, Int(session.lineFromPosition(position: newPosition)) - 1)
-			context?.activeLineScrollIndex = line
-			textModeFirstLine = line
+			if shouldAnnounce { announceNavigationCue(currentSegmentText) }
+		} else {
+			onJump?(newPosition)
 		}
-		if shouldAnnounce { announceNavigationCue(currentSegmentText) }
+	}
+
+	/// The reading screen's report of the paragraph the reader is on.
+	func readerMoved(to newPosition: Int64) {
+		position = newPosition
+		context?.persistPosition(newPosition)
 	}
 
 	func loadSegment(for book: OpenBook) {
@@ -276,11 +279,6 @@ final class ReadingController {
 		narration?.attach(to: book)
 		ensureNavUnitSupported()
 		position = book.currentPosition
-		if !hasAudio {
-			let line = max(0, Int(session.lineFromPosition(position: position)) - 1)
-			context?.activeLineScrollIndex = line
-			textModeFirstLine = line
-		}
 		refreshCurrentSegment()
 	}
 
@@ -334,15 +332,6 @@ final class ReadingController {
 			direction: .current
 		)
 		currentSegmentText = seg.text
-	}
-
-	// Scrolling the text view only moves textModeFirstLine, so the place it reached is lost
-	// unless it is saved before the app is backgrounded or the book is closed.
-	func saveTextModePosition() {
-		guard !hasAudio, let session = activeSession else { return }
-		let pos = session.positionFromLine(line: Int64(textModeFirstLine + 1))
-		position = pos
-		context?.persistPosition(pos)
 	}
 
 	private func setupRemoteCommands() {

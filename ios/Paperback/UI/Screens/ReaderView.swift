@@ -10,6 +10,8 @@ struct ReaderView: View {
 			.navigationTitle(viewModel.book?.title ?? "")
 			.navigationBarTitleDisplayMode(.inline)
 			.navigationBarBackButtonHidden(true)
+			// The reading screen is the whole book with nothing else in the way; its menu opens on a double-tap.
+			.toolbar(viewModel.reading.hasAudio ? .visible : .hidden, for: .navigationBar)
 			.toolbar { readerToolbar }
 			.safeAreaInset(edge: .bottom) { bottomBar }
 			// The scrub is the standard way out of a screen, so it leaves the book too.
@@ -39,11 +41,13 @@ struct ReaderView: View {
 
 	@ViewBuilder
 	private var mainContent: some View {
-		if let book = viewModel.book {
+		if let session = viewModel.book?.session {
 			if viewModel.reading.hasAudio {
 				PlayerView()
 			} else {
-				TextModeView(book: book)
+				ReadingScreen(viewModel: viewModel, session: session)
+					.ignoresSafeArea()
+					.id(viewModel.book?.url)
 			}
 		}
 	}
