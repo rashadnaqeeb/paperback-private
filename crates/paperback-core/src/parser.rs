@@ -23,6 +23,7 @@ pub mod convert;
 pub mod daisy;
 pub mod epub;
 pub mod fb2;
+mod fork_joins;
 pub mod hlp;
 pub mod html;
 pub mod m4b;
@@ -218,6 +219,12 @@ pub fn parse_document(context: &ParserContext) -> Result<Document> {
 	for parser in parsers {
 		match parser.parse(context) {
 			Ok(mut doc) => {
+				// PDF rebuilds its own paragraphs, a plain text file's line breaks are its author's, and recorded audio is
+				// bound to the text's positions.
+				let own_lines = [paperback_formats::PDF.name, paperback_formats::TEXT.name].contains(&parser.name());
+				if !own_lines && doc.audio.is_none() {
+					fork_joins::join_cut_paragraphs(&mut doc);
+				}
 				doc.compute_stats();
 				tracing::debug!(path = %context.file_path, parser = parser.name(), "parsed document");
 				return Ok(doc);
