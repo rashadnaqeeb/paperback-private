@@ -40,10 +40,55 @@ final class PageTests: XCTestCase {
 		let model = BookModel(session: session(pages: true))
 		XCTAssertEqual(model.pageLabels, ["i", "1", "2"])
 		XCTAssertEqual(model.page(atPosition: 50), 1)
-		XCTAssertEqual(model.pageStop(from: 0, forward: true), 4)
-		XCTAssertEqual(model.pageStop(from: 5, forward: true), 7)
-		XCTAssertEqual(model.pageStop(from: 5, forward: false), 4)
-		XCTAssertNil(model.pageStop(from: 8, forward: true))
+		XCTAssertEqual(model.pageTurn(from: 0, onPage: nil, forward: true)?.unit, 4)
+		XCTAssertEqual(model.pageTurn(from: 5, onPage: nil, forward: true)?.unit, 7)
+		XCTAssertEqual(model.pageTurn(from: 5, onPage: nil, forward: false)?.unit, 4)
+		XCTAssertEqual(model.pageTurn(from: 4, onPage: nil, forward: false)?.unit, 0)
+		XCTAssertNil(model.pageTurn(from: 8, onPage: nil, forward: true))
+	}
+
+	func testAPageStartingInsideAParagraphIsTurnedToAndNamed() {
+		let session = session(pages: false)
+		// Page "12" starts partway into paragraph 5, page "13" in paragraph 8.
+		for (position, label) in [(0, "11"), (58, "12"), (90, "13")] {
+			session.markers.append(LineMarker(mtype: .pageBreak, position: Int64(position), text: label, reference: "", level: 0, length: 0))
+		}
+		let controller = ReadingViewController(model: BookModel(session: session), startUnit: 4)
+		let view = controller.view as! BookView
+		view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+		view.layoutIfNeeded()
+		XCTAssertTrue(view.accessibilityScroll(.up))
+		XCTAssertEqual(view.focusedUnit, 5)
+		XCTAssertTrue(controller.status().hasPrefix("Page 12"), controller.status())
+		XCTAssertTrue(view.accessibilityScroll(.up))
+		XCTAssertEqual(view.focusedUnit, 8)
+		XCTAssertTrue(controller.status().hasPrefix("Page 13"), controller.status())
+		XCTAssertTrue(view.accessibilityScroll(.down))
+		XCTAssertEqual(view.focusedUnit, 5)
+		XCTAssertTrue(controller.status().hasPrefix("Page 12"), controller.status())
+	}
+
+	func testAPageTheEngineAlreadyNamedIsSpokenAsItIs() {
+		XCTAssertEqual(BookModel.pageName("Page 3"), "Page 3")
+		XCTAssertEqual(BookModel.pageName("Slide 3"), "Slide 3")
+		XCTAssertEqual(BookModel.pageName("xii"), "Page xii")
+	}
+
+	func testTurningBackAScreenLandsOnThePagesFirstParagraphAndForwardReturns() {
+		let session = PagedSession(noHandle: .init())
+		session.buffer = (0..<300).map { "Paragraph \($0) runs long enough to wrap onto a second line on a phone screen." }.joined(separator: "\n")
+		let controller = ReadingViewController(model: BookModel(session: session), startUnit: 100)
+		let view = controller.view as! BookView
+		view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+		view.layoutIfNeeded()
+		view.reveal(100, startingPage: true)
+		XCTAssertTrue(view.accessibilityScroll(.down))
+		let previous = view.firstUnitOnPage
+		XCTAssertEqual(view.focusedUnit, previous)
+		XCTAssertEqual(view.lastUnitOnPage, 99)
+		XCTAssertTrue(view.accessibilityScroll(.up))
+		XCTAssertEqual(view.focusedUnit, 100)
+		XCTAssertEqual(view.firstUnitOnPage, 100)
 	}
 
 	func testTheTapSpeaksThePrintedPageAndThePercent() {

@@ -118,8 +118,10 @@ enum TableParser {
 				cell = (
 					"",
 					name == "th" || inHead,
-					max(attribute("rowspan", in: tag) ?? 1, 1),
-					max(attribute("colspan", in: tag) ?? 1, 1)
+					// Bounded as browsers bound them, and tighter across: a stray colspan="1000" would otherwise squeeze every
+					// column to nothing.
+					min(max(attribute("rowspan", in: tag) ?? 1, 1), 65534),
+					min(max(attribute("colspan", in: tag) ?? 1, 1), 50)
 				)
 			case ("td", true), ("th", true):
 				finishCell()
@@ -137,7 +139,9 @@ enum TableParser {
 		for (r, cells) in rows.enumerated() {
 			var column = 0
 			var placedRow: [ParsedTable.Cell] = []
-			for cell in cells {
+			for var cell in cells {
+				// A span cannot reach past the last row, and filling rows that do not exist would only cost memory.
+				cell.rowSpan = min(cell.rowSpan, rows.count - r)
 				while occupied.count > r, column < occupied[r].count, occupied[r][column] { column += 1 }
 				for dr in 0..<cell.rowSpan {
 					let target = r + dr
@@ -152,15 +156,8 @@ enum TableParser {
 			placed.append(placedRow)
 		}
 		guard placed.reduce(0, { $0 + $1.count }) > 1 else { return nil }
-		// A span cannot reach past the last row.
-		for (r, cells) in placed.enumerated() {
-			placed[r] = cells.map { cell in
-				var clipped = cell
-				clipped.rowSpan = min(cell.rowSpan, placed.count - r)
-				return clipped
-			}
-		}
-		var headerRowCount = placed.prefix { cells in !cells.isEmpty && cells.allSatisfy(\.isHeader) }.count
+		// A header row may start with an empty corner cell, marked up as a plain td.
+		var headerRowCount = placed.prefix { cells in cells.contains(where: \.isHeader) && cells.allSatisfy { $0.isHeader || $0.text.isEmpty } }.count
 		let anyHeader = placed.contains { $0.contains(where: \.isHeader) }
 		if headerRowCount == 0, !anyHeader, placed.count > 1 {
 			// With no header cells marked at all, the first row names the columns, as in most books.
@@ -174,10 +171,19 @@ enum TableParser {
 		return ParsedTable(caption: collapse(caption), rows: placed, columnCount: max(columnCount, 1), headerRowCount: min(headerRowCount, placed.count - 1))
 	}
 
+	/// A whole-number attribute of a tag, which HTML lets have spaces around its "=".
 	private static func attribute(_ name: String, in tag: Substring) -> Int? {
-		guard let range = tag.range(of: name + "=", options: .caseInsensitive) else { return nil }
-		let value = tag[range.upperBound...].drop { $0 == "\"" || $0 == "'" }.prefix { $0.isNumber }
-		return Int(value)
+		var rest = tag[...]
+		while let range = rest.range(of: name, options: .caseInsensitive) {
+			rest = rest[range.upperBound...]
+			// The name has to be whole: not the end of data-colspan, nor the start of colspanned.
+			guard range.lowerBound > tag.startIndex, tag[tag.index(before: range.lowerBound)].isWhitespace else { continue }
+			let afterName = rest.drop { $0.isWhitespace }
+			guard afterName.first == "=" else { continue }
+			let value = afterName.dropFirst().drop { $0.isWhitespace || $0 == "\"" || $0 == "'" }.prefix { $0.isNumber }
+			return Int(value)
+		}
+		return nil
 	}
 
 	private static func collapse(_ text: String) -> String {

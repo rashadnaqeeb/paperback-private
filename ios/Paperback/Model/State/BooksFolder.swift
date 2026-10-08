@@ -33,8 +33,8 @@ final class BooksFolder {
 		if isStale { saveBookmark(url) }
 	}
 
+	// The old folder's access is kept: a book open from it, an audiobook especially, still reads its files.
 	func choose(_ url: URL) {
-		folderURL?.stopAccessingSecurityScopedResource()
 		adopt(url)
 		saveBookmark(url)
 	}

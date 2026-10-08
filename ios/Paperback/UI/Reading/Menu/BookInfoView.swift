@@ -7,6 +7,8 @@ struct BookInfoView: View {
 	@Environment(\.dismiss) private var dismiss
 	@State private var query = ""
 	@State private var results: [FindAllLineFfi]?
+	/// The book's printed page numbers, which the search's page counts index.
+	@State private var pageLabels: [String] = []
 
 	var body: some View {
 		List {
@@ -41,9 +43,8 @@ struct BookInfoView: View {
 						} label: {
 							VStack(alignment: .leading) {
 								Text(result.text).lineLimit(3)
-								if result.page > 0 {
-									// TRANSLATORS: The page a search result is on; {} is the page number
-									Text(t("Page {}").replacingOccurrences(of: "{}", with: "\(result.page)"))
+								if pageLabels.indices.contains(Int(result.page) - 1) {
+									Text(BookModel.pageName(pageLabels[Int(result.page) - 1]))
 										.font(.caption)
 										.foregroundStyle(.secondary)
 								}
@@ -65,6 +66,8 @@ struct BookInfoView: View {
 		let trimmed = query.trimmingCharacters(in: .whitespaces)
 		guard !trimmed.isEmpty, let session = viewModel.activeSession else { return }
 		let found = session.findAllFfi(query: trimmed, options: SearchOptionsFfi(matchCase: false, wholeWord: false, regex: false, forward: true))
+		// The engine counts pages from the first; the reader knows them by their printed numbers.
+		pageLabels = session.getStructureMarkersFfi().filter { $0.mtype == .pageBreak }.map(\.text)
 		results = found
 		// TRANSLATORS: Spoken after searching the book; {} is the number of lines that matched. Which of the three forms is used depends on the language's plural rule, and the "many" form's trailing character isn't a typo.
 		let summary = nt(t("{} match"), t("{} matches"), t("{} matches⁣"), found.count).replacingOccurrences(of: "{}", with: "\(found.count)")

@@ -13,10 +13,10 @@ struct BookmarksView: View {
 			Section {
 				// TRANSLATORS: Button in the in-book menu that bookmarks the paragraph being read
 				Button(t("Add Bookmark")) {
-					viewModel.addBookmark()
+					let added = viewModel.addBookmark()
 					reload()
-					// TRANSLATORS: Spoken after a bookmark is added
-					UIAccessibility.post(notification: .announcement, argument: t("Bookmark added"))
+					// TRANSLATORS: Spoken after a bookmark is added, or when the paragraph already had one
+					UIAccessibility.post(notification: .announcement, argument: added ? t("Bookmark added") : t("Already bookmarked"))
 				}
 			}
 			if !bookmarks.isEmpty {
@@ -43,12 +43,13 @@ struct BookmarksView: View {
 		.navigationBarTitleDisplayMode(.inline)
 		.onAppear(perform: reload)
 		// TRANSLATORS: Title of the dialog renaming a bookmark
-		.alert(t("Rename Bookmark"), isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+		// The bookmark comes in as the presented value: the presentation binding may already be cleared when Save runs.
+		.alert(t("Rename Bookmark"), isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } }), presenting: renaming) { bookmark in
 			// TRANSLATORS: Placeholder of the field holding a bookmark's name
 			TextField(t("Name"), text: $newName)
 			// TRANSLATORS: Button saving a bookmark's new name
 			Button(t("Save")) {
-				if let renaming { viewModel.renameBookmark(renaming, to: newName) }
+				viewModel.renameBookmark(bookmark, to: newName)
 				reload()
 			}
 			Button(t("Cancel"), role: .cancel) {}

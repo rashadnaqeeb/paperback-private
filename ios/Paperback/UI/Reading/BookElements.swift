@@ -14,11 +14,14 @@ final class ParagraphElement: UIAccessibilityElement, BookElement {
 	let unit: Int
 	weak var bookView: BookView?
 	private let isWholeLink: Bool
+	/// UIKit holds an element's container weakly, and the book view may let a list go while VoiceOver is still in it.
+	private let list: ListElement?
 
 	init(container: Any, bookView: BookView, unit index: Int, unit: BookUnit) {
 		self.unit = index
 		self.bookView = bookView
 		isWholeLink = unit.isWholeLink
+		list = container as? ListElement
 		super.init(accessibilityContainer: container)
 		switch unit.kind {
 		case .heading(let level):
@@ -73,11 +76,14 @@ final class LinkElement: UIAccessibilityElement, BookElement {
 	let unit: Int
 	let link: Int
 	weak var bookView: BookView?
+	/// UIKit holds an element's container weakly, and the book view may let a list go while VoiceOver is still in it.
+	private let list: ListElement?
 
 	init(container: Any, bookView: BookView, unit: Int, link: Int, text: String) {
 		self.unit = unit
 		self.link = link
 		self.bookView = bookView
+		list = container as? ListElement
 		super.init(accessibilityContainer: container)
 		accessibilityLabel = text
 		accessibilityTraits = .link
@@ -241,8 +247,11 @@ final class TableCellElement: UIAccessibilityElement, BookElement, @preconcurren
 	/// The unit of the row the cell starts in.
 	let unit: Int
 	weak var bookView: BookView?
+	/// UIKit holds an element's container weakly, and the book view may let a table go while VoiceOver is still in it.
+	private let table: TableElement
 
 	init(table: TableElement, cell: ParsedTable.Cell, bookView: BookView) {
+		self.table = table
 		row = cell.row
 		column = cell.column
 		rowSpan = cell.rowSpan

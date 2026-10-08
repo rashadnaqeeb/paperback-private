@@ -264,12 +264,17 @@ final class BookView: UIScrollView {
 
 	// MARK: Moving through the book
 
-	/// Brings `index` onto the page, turning forward so it starts the page or back so it ends it.
-	func reveal(_ index: Int) {
+	/// Brings `index` onto the page, turning forward so it starts the page or back so it ends it. A page turn asks for
+	/// it to start the page whichever way the turn went.
+	func reveal(_ index: Int, startingPage: Bool = false) {
 		guard model.count > 0 else { return }
 		let index = min(max(index, 0), model.count - 1)
 		focusedUnit = index
 		if pageFrames.isEmpty { pageStart = index }
+		if startingPage {
+			if index != pageStart { showPage(from: index) }
+			return
+		}
 		guard !isOnPage(index) else { return }
 		showPage(from: index < pageStart ? pageStart(endingAt: index) : index)
 	}
@@ -393,9 +398,11 @@ final class BookView: UIScrollView {
 		}
 	}
 
-	/// The two-finger scrub jumps back.
+	/// The two-finger scrub jumps back. It is taken even with nothing to go back to: passed on, it would reach the
+	/// navigation stack and leave the book.
 	override func accessibilityPerformEscape() -> Bool {
-		onEscape?() ?? false
+		_ = onEscape?()
+		return true
 	}
 
 	/// Three-finger flicks up and down move by page. Read All's own page turns (next and previous) are left alone:

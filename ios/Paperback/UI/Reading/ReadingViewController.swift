@@ -22,6 +22,9 @@ final class ReadingViewController: UIViewController, UIScrollViewAccessibilityDe
 		didSet { bookView.bookmarkPositions = bookmarkPositions }
 	}
 
+	/// The printed page the reader last turned to, and the unit it landed on, since a page can start inside a paragraph.
+	private var turnedTo: (unit: Int, page: Int)?
+
 	/// Where each jump the app made left from, newest last, so the scrub can go back.
 	private var jumpBack: [Int] = []
 	private let jumpBackLimit = 100
@@ -140,8 +143,8 @@ final class ReadingViewController: UIViewController, UIScrollViewAccessibilityDe
 	}
 
 	/// Moves to a unit with VoiceOver focus following when the reading screen is showing.
-	private func move(to unit: Int) {
-		bookView.reveal(unit)
+	private func move(to unit: Int, startingPage: Bool = false) {
+		bookView.reveal(unit, startingPage: startingPage)
 		setCurrent(bookView.focusedUnit)
 		restoreTarget = bookView.focusedUnit
 		guard view.window != nil, let element = bookView.focusTarget(forUnit: restoreTarget) else { return }
@@ -171,9 +174,9 @@ final class ReadingViewController: UIViewController, UIScrollViewAccessibilityDe
 		let percent = model.session.getStatusInfo(position: position).percentage
 		// TRANSLATORS: How far through the book the reader is, spoken by the three-finger tap; {} is a whole number
 		let read = t("{} percent").replacingOccurrences(of: "{}", with: "\(percent)")
-		guard let page = model.page(atPosition: position), !model.pageLabels[page].isEmpty else { return read }
-		// TRANSLATORS: The book's printed page number the reader is on, spoken by the three-finger tap; {} is the number as printed, which may be a roman numeral
-		return t("Page {}").replacingOccurrences(of: "{}", with: model.pageLabels[page]) + ", " + read
+		let page = turnedTo?.unit == currentUnit ? turnedTo?.page : model.page(atPosition: position)
+		guard let page, !model.pageLabels[page].isEmpty else { return read }
+		return BookModel.pageName(model.pageLabels[page]) + ", " + read
 	}
 
 	func accessibilityScrollStatus(for scrollView: UIScrollView) -> String? {
@@ -182,15 +185,21 @@ final class ReadingViewController: UIViewController, UIScrollViewAccessibilityDe
 
 	/// Moves to the start of the next or previous page: the book's own pages when it has them, else the screen's.
 	private func turnPage(forward: Bool) -> Bool {
-		let target = model.pagePositions.isEmpty
-			? bookView.visualPageStop(forward: forward)
-			: model.pageStop(from: currentUnit, forward: forward)
+		let target: Int?
+		if model.pagePositions.isEmpty {
+			target = bookView.visualPageStop(forward: forward)
+		} else {
+			let known = turnedTo?.unit == currentUnit ? turnedTo?.page : nil
+			let turn = model.pageTurn(from: currentUnit, onPage: known, forward: forward)
+			target = turn?.unit
+			if let turn { turnedTo = turn }
+		}
 		guard let target else {
 			// The same status again tells VoiceOver it is at the edge.
 			UIAccessibility.post(notification: .pageScrolled, argument: status())
 			return false
 		}
-		move(to: target)
+		move(to: target, startingPage: true)
 		UIAccessibility.post(notification: .pageScrolled, argument: status())
 		return true
 	}

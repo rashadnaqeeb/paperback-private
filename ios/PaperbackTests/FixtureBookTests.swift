@@ -22,7 +22,8 @@ final class FixtureBookTests: XCTestCase {
 		let chapter = try XCTUnwrap(session.getToc().first { $0.title.contains("Dedication") })
 		viewModel.reading.readerMoved(to: chapter.position + 1)
 		for old in viewModel.bookmarks() { viewModel.deleteBookmark(old) }
-		viewModel.addBookmark()
+		XCTAssertTrue(viewModel.addBookmark())
+		XCTAssertFalse(viewModel.addBookmark())
 		let mark = try XCTUnwrap(viewModel.bookmarks().first)
 		XCTAssertEqual(mark.start, mark.end)
 		XCTAssertTrue(viewModel.bookmarkLabel(mark).hasPrefix("Dedication"), viewModel.bookmarkLabel(mark))

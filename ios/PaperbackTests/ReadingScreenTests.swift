@@ -87,10 +87,19 @@ final class BookModelTests: XCTestCase {
 		XCTAssertEqual(text.headingUnits, [0, 1])
 	}
 
+	func testAnImageInsideAParagraphLeavesItAParagraph() {
+		let (_, text) = book("[Image: T]he night was dark.") {
+			$0.markers.append(LineMarker(mtype: .image, position: 0, text: "T", reference: "", level: 0, length: 10))
+		}
+		XCTAssertEqual(text.units[0].kind, .paragraph)
+		XCTAssertEqual(text.units[0].text, "[Image: T]he night was dark.")
+		XCTAssertEqual(text.imageUnits, [0])
+	}
+
 	func testAnImageSpeaksItsDescriptionOrNothingWhenItHasNone() {
 		let (_, text) = book("[Image: A map]\n[Image: Image]\nText.") {
-			$0.mark(.image, at: 0, text: "A map")
-			$0.mark(.image, at: 15, text: "Image")
+			$0.markers.append(LineMarker(mtype: .image, position: 0, text: "A map", reference: "", level: 0, length: 14))
+			$0.markers.append(LineMarker(mtype: .image, position: 15, text: "Image", reference: "", level: 0, length: 14))
 		}
 		XCTAssertEqual(text.units[0].kind, .image(description: "A map"))
 		XCTAssertEqual(text.units[1].kind, .image(description: nil))
@@ -212,7 +221,7 @@ final class BookViewTests: XCTestCase {
 		session.mark(.link, at: 20, text: "note 1")
 		session.mark(.link, at: 31, text: "note 2")
 		session.mark(.heading1, at: 39)
-		session.mark(.image, at: 49, text: "Map")
+		session.markers.append(LineMarker(mtype: .image, position: 49, text: "Map", reference: "", level: 0, length: 12))
 		let view = BookView(model: BookModel(session: session))
 		view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
 		view.layoutIfNeeded()
@@ -260,6 +269,25 @@ final class BookViewTests: XCTestCase {
 		let view = structuredView()
 		let link = view.element(forLink: 1, inUnit: 1)
 		XCTAssertEqual(view.index(ofAccessibilityElement: link as Any), 1)
+	}
+
+	func testTheScrubIsTakenEvenWithNothingToGoBackTo() {
+		let view = structuredView()
+		view.onEscape = { false }
+		XCTAssertTrue(view.accessibilityPerformEscape())
+	}
+
+	func testAListItemKeepsItsListWhenTheViewLetsTheListGo() {
+		let session = TextSession(noHandle: .init())
+		session.buffer = (["• First", "• Second"] + (0..<2000).map { "Paragraph \($0)" }).joined(separator: "\n")
+		session.markers.append(LineMarker(mtype: .list, position: 0, text: "", reference: "", level: 2, length: 16))
+		let view = BookView(model: BookModel(session: session))
+		view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+		view.layoutIfNeeded()
+		let item = view.element(forUnit: 1)
+		view.unitBecameFocused(1500)
+		for unit in 1400..<1700 { _ = view.element(forUnit: unit) }
+		XCTAssertTrue(item?.accessibilityContainer is ListElement)
 	}
 
 	func testTheImagesRotorFindsTheImage() {

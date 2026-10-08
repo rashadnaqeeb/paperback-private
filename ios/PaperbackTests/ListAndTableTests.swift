@@ -43,6 +43,25 @@ final class TableParserTests: XCTestCase {
 		XCTAssertEqual(table.rowHeaders(1).map(\.text), ["Oil"])
 	}
 
+	func testAHeaderRowMayStartWithAnEmptyCorner() throws {
+		let table = try XCTUnwrap(TableParser.parse("<table><tr><td></td><th>2019</th><th>2020</th></tr><tr><th>Revenue</th><td>5</td><td>6</td></tr></table>"))
+		XCTAssertEqual(table.headerRowCount, 1)
+		XCTAssertEqual(table.columnHeaders(2).map(\.text), ["2020"])
+		XCTAssertEqual(table.rowHeaders(1).map(\.text), ["Revenue"])
+	}
+
+	func testSpanAttributesAreReadWholeAndWithSpaces() throws {
+		let table = try XCTUnwrap(TableParser.parse("<table><tr><td colspan = \"2\">A</td><td data-colspan=\"5\">B</td></tr><tr><td>c</td><td>d</td><td>e</td></tr></table>"))
+		XCTAssertEqual(table.columnCount, 3)
+		XCTAssertEqual(table.cell(row: 0, column: 2)?.text, "B")
+	}
+
+	func testAbsurdSpansAreBounded() throws {
+		let table = try XCTUnwrap(TableParser.parse("<table><tr><td colspan=\"999999999\" rowspan=\"9999999\">A</td></tr><tr><td>b</td></tr></table>"))
+		XCTAssertEqual(table.cell(row: 0, column: 0)?.columnSpan, 50)
+		XCTAssertEqual(table.cell(row: 0, column: 0)?.rowSpan, 2)
+	}
+
 	func testATableOfOneCellIsNotATable() {
 		XCTAssertNil(TableParser.parse("<table><tr><td>Just text</td></tr></table>"))
 	}
@@ -69,7 +88,7 @@ private final class MarkedSession: DocumentSession, @unchecked Sendable {
 
 @MainActor
 final class ListAndTableTests: XCTestCase {
-	// Lines start at 0, 6, 15, 24, 51, 57.
+	// Lines start at 0, 6, 15, 23, 43, 49.
 	private let buffer = "Intro\n• Apples\n• Pears\n[Table]: Year Sales\nOutro\nLast."
 	private let tableHTML = "<table><caption>Sales</caption><tr><th>Year</th><th>Sales</th></tr><tr><td>2020</td><td>5</td></tr><tr><td>2021</td><td>7</td></tr></table>"
 
@@ -79,7 +98,7 @@ final class ListAndTableTests: XCTestCase {
 		session.mark(.list, at: 6, length: 17)
 		session.mark(.listItem, at: 6)
 		session.mark(.listItem, at: 15)
-		session.mark(.table, at: 24, reference: tableHTML)
+		session.mark(.table, at: 23, reference: tableHTML)
 		return BookModel(session: session)
 	}
 
@@ -108,8 +127,41 @@ final class ListAndTableTests: XCTestCase {
 		XCTAssertEqual(model.blocks[3].units, 4..<7)
 		XCTAssertEqual(model.tableUnits, [4])
 		XCTAssertEqual(model.units[7].text, "Outro")
-		// The table's rows all stand at the table's line, so its position leads back to its first row.
-		XCTAssertEqual(model.unit(forPosition: 24), 3)
+		// The table's line start is its caption's place; each row stands one position further in.
+		XCTAssertEqual(model.unit(forPosition: 23), 3)
+		XCTAssertEqual(model.unit(forPosition: 24), 4)
+	}
+
+	func testEachTableRowKeepsItsOwnPosition() {
+		let model = model()
+		for unit in 3..<7 {
+			XCTAssertEqual(model.unit(forPosition: model.position(ofUnit: unit)), unit)
+		}
+		XCTAssertNotEqual(model.position(ofUnit: 4), model.position(ofUnit: 6))
+	}
+
+	func testATableInsideAListKeepsTheItemsAfterItInAList() {
+		let session = MarkedSession(noHandle: .init())
+		// Lines start at 0, 4, 15, 22.
+		session.buffer = "• A\n[Table]: x\n• After\nOutro"
+		session.mark(.list, at: 0, length: 22)
+		session.mark(.table, at: 4, reference: tableHTML)
+		let model = BookModel(session: session)
+		XCTAssertEqual(model.listUnits, [0])
+		let after = model.units.firstIndex { $0.text == "• After" }!
+		XCTAssertEqual(model.units[after].kind, .listItem)
+		XCTAssertEqual(model.blocks[model.blockOfUnit[after]].kind, .list)
+		XCTAssertEqual(model.units.last?.kind, .paragraph)
+	}
+
+	func testAListStartingWithATableLeavesNoEmptyList() {
+		let session = MarkedSession(noHandle: .init())
+		session.buffer = "[Table]: x\n• After\nOutro"
+		session.mark(.list, at: 0, length: 19)
+		session.mark(.table, at: 0, reference: tableHTML)
+		let model = BookModel(session: session)
+		XCTAssertFalse(model.blocks.contains { $0.units.isEmpty })
+		XCTAssertEqual(model.listUnits.count, 1)
 	}
 
 	func testTheBookViewsElementsAreTheBlocks() {

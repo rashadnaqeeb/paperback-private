@@ -78,9 +78,16 @@ final class AppViewModel {
 	private func reopenLastBook() {
 		guard let name = UserDefaults.standard.string(forKey: Self.openBookKey), let folder = booksFolder.folderURL else { return }
 		let url = folder.appendingPathComponent(name)
+		let placeholder = folder.appendingPathComponent(".\(name).icloud")
+		// A book renamed or deleted since would otherwise put up an error at every launch.
+		guard FileManager.default.fileExists(atPath: url.path) || FileManager.default.fileExists(atPath: placeholder.path) else {
+			UserDefaults.standard.removeObject(forKey: Self.openBookKey)
+			return
+		}
 		Task {
 			guard let local = try? await BooksFolder.download(url), book == nil else { return }
 			openBook(url: local)
+			if book == nil { UserDefaults.standard.removeObject(forKey: Self.openBookKey) }
 		}
 	}
 
@@ -135,12 +142,15 @@ final class AppViewModel {
 	}
 
 	/// Bookmarks the paragraph being read with an automatic label, never asking for one. Start and end are the same,
-	/// which the desktop reads as the whole line.
-	func addBookmark() {
-		guard let bookPath else { return }
+	/// which the desktop reads as the whole line. False when the paragraph already had a bookmark.
+	@discardableResult
+	func addBookmark() -> Bool {
+		guard let bookPath else { return false }
 		let position = reading.position
+		let before = bookmarks().count
 		configManager.addBookmarkFfi(path: bookPath, start: position, end: position, note: automaticLabel(at: position))
 		configManager.flush()
+		return bookmarks().count > before
 	}
 
 	func renameBookmark(_ bookmark: BookmarkFfi, to name: String) {

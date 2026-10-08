@@ -29,6 +29,11 @@ struct BookUnit {
 	let line: Int
 	let text: String
 	let links: [BookLink]
+	/// Where in its line the unit stands, in the engine's positions. Only a table's rows share a line, and each takes
+	/// its own offset so the reading position, bookmarks, and sync can tell them apart.
+	var offset = 0
+	/// A paragraph holding an image among its text, which the Images rotor stops on.
+	var hasInlineImage = false
 
 	/// A paragraph that is nothing but one link, which double-tap follows instead of opening the menu.
 	var isWholeLink: Bool {
@@ -73,6 +78,9 @@ final class BookModel {
 	private(set) var pageLabels: [String] = []
 	/// Every link in reading order, as its unit and its index among that unit's links.
 	private(set) var linkStops: [(unit: Int, link: Int)] = []
+	/// Set when a list starts and cleared when its first item makes its block, so a list right after another one does
+	/// not run into it.
+	private var listStarting = false
 
 	init(session: DocumentSession) {
 		self.session = session
@@ -94,7 +102,7 @@ final class BookModel {
 		}
 		lineStarts = starts
 		var headings: [Int: Int] = [:]
-		var images: [Int: String] = [:]
+		var images: [Int: LineMarker] = [:]
 		var links: [Int: [LineMarker]] = [:]
 		var lists: [Int: Int64] = [:]
 		var tableMarkers: [Int: LineMarker] = [:]
@@ -107,7 +115,7 @@ final class BookModel {
 			case .heading4: headings[line] = 4
 			case .heading5: headings[line] = 5
 			case .heading6: headings[line] = 6
-			case .image: images[line] = marker.text
+			case .image: images[line] = marker
 			case .link: links[line, default: []].append(marker)
 			case .list: lists[line] = max(lists[line] ?? 0, marker.position + marker.length)
 			case .table: tableMarkers[line] = marker
@@ -122,33 +130,40 @@ final class BookModel {
 		var listEnd: Int64?
 		for (line, range) in ranges.enumerated() {
 			unitAtLine.append(units.count)
-			if let end = listEnd, starts[line] >= end { listEnd = nil }
+			if let end = listEnd, starts[line] >= end {
+				listEnd = nil
+				listStarting = false
+			}
 			let raw = String(decoding: bytes[range], as: UTF8.self)
 			let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
 			guard !text.isEmpty else { continue }
-			if let marker = tableMarkers[line], let table = TableParser.parse(marker.reference) {
-				addTable(table, line: line)
-				continue
-			}
 			if listEnd == nil, let end = lists[line] {
 				listEnd = end
-				listUnits.append(units.count)
-				blocks.append(BookBlock(kind: .list, units: units.count..<units.count))
+				listStarting = true
 			}
+			let leading = raw.unicodeScalars.prefix { CharacterSet.whitespacesAndNewlines.contains($0) }.count
+			let length = text.unicodeScalars.count
+			if let marker = tableMarkers[line], let table = TableParser.parse(marker.reference) {
+				addTable(table, line: line, offset: leading, length: length)
+				continue
+			}
+			// The engine writes an image into the text where it stands; only a line that is nothing but the image is one.
+			let image = images[line].flatMap { $0.position == starts[line] + Int64(leading) && $0.length >= length ? $0 : nil }
 			let kind: UnitKind
 			if let level = headings[line] {
 				kind = .heading(level: level)
-			} else if let description = images[line] {
+			} else if let image {
 				// The engine names an image without a description "Image", which is no description at all.
-				kind = .image(description: description.isEmpty || description == "Image" ? nil : description)
+				kind = .image(description: image.text.isEmpty || image.text == "Image" ? nil : image.text)
 			} else if listEnd != nil {
 				kind = .listItem
 			} else {
 				kind = .paragraph
 			}
-			let leading = raw.unicodeScalars.prefix { CharacterSet.whitespacesAndNewlines.contains($0) }.count
 			let unitLinks = (links[line] ?? []).compactMap { Self.link($0, lineStart: starts[line], leading: leading, in: text) }
-			add(BookUnit(kind: kind, line: line, text: Self.withoutTablePlaceholder(text, isTable: tableMarkers[line] != nil), links: unitLinks), joiningList: listEnd != nil)
+			var unit = BookUnit(kind: kind, line: line, text: Self.withoutTablePlaceholder(text, isTable: tableMarkers[line] != nil), links: unitLinks)
+			unit.hasInlineImage = image == nil && images[line] != nil
+			add(unit, joiningList: listEnd != nil)
 		}
 	}
 
@@ -163,23 +178,34 @@ final class BookModel {
 	private func add(_ unit: BookUnit, joiningList: Bool = false) {
 		let index = units.count
 		if case .heading = unit.kind { headingUnits.append(index) }
-		if case .image = unit.kind { imageUnits.append(index) }
+		if case .image = unit.kind { imageUnits.append(index) } else if unit.hasInlineImage { imageUnits.append(index) }
 		for link in unit.links.indices {
 			linkStops.append((index, link))
 		}
 		units.append(unit)
-		if joiningList, let last = blocks.indices.last, blocks[last].kind == .list {
+		if joiningList, !listStarting, let last = blocks.indices.last, blocks[last].kind == .list {
 			blocks[last].units = blocks[last].units.lowerBound..<index + 1
+		} else if joiningList {
+			// A new list, or, after a table inside a list, the items that carry on in a container of their own.
+			if listStarting { listUnits.append(index) }
+			listStarting = false
+			blocks.append(BookBlock(kind: .list, units: index..<index + 1))
 		} else {
 			blocks.append(BookBlock(kind: .single, units: index..<index + 1))
 		}
 		blockOfUnit.append(blocks.count - 1)
 	}
 
-	/// A table is its caption, a block of its own, then a block of one unit per row.
-	private func addTable(_ table: ParsedTable, line: Int) {
+	/// A table is its caption, a block of its own, then a block of one unit per row. The table is one line of the
+	/// buffer, its placeholder text, so each row stands at its own offset into that line, the last ones sharing its
+	/// last position when the table has more rows than the placeholder has characters.
+	private func addTable(_ table: ParsedTable, line: Int, offset: Int, length: Int) {
+		var next = 0
 		if !table.caption.isEmpty {
-			add(BookUnit(kind: .caption, line: line, text: table.caption, links: []))
+			var caption = BookUnit(kind: .caption, line: line, text: table.caption, links: [])
+			caption.offset = offset
+			add(caption)
+			next = 1
 		}
 		let index = tables.count
 		tables.append(table)
@@ -187,8 +213,9 @@ final class BookModel {
 		tableUnits.append(first)
 		blocks.append(BookBlock(kind: .table(index), units: first..<first + table.rowCount))
 		for row in 0..<table.rowCount {
-			let text = table.rows[row].map(\.text).joined(separator: " ")
-			units.append(BookUnit(kind: .tableRow(table: index, row: row), line: line, text: text, links: []))
+			var unit = BookUnit(kind: .tableRow(table: index, row: row), line: line, text: table.rows[row].map(\.text).joined(separator: " "), links: [])
+			unit.offset = offset + min(next + row, max(length - 1, 0))
+			units.append(unit)
 			blockOfUnit.append(blocks.count - 1)
 		}
 	}
@@ -198,10 +225,37 @@ final class BookModel {
 		pagePositions.lastIndex { $0 <= position }
 	}
 
-	/// The first unit of the book's next page after `unit`, or of the page before it.
-	func pageStop(from unit: Int, forward: Bool) -> Int? {
-		let stops = pagePositions.map(unit(forPosition:))
-		return BookModel.stop(in: stops, from: unit, forward: forward)
+	/// Where a page turn lands: the next or previous page and the unit holding its start. A printed page often starts
+	/// inside a paragraph, so the pages are counted, not the units: `known` is the page the reader last turned to while
+	/// still on that unit, and otherwise the unit's own span decides.
+	func pageTurn(from unit: Int, onPage known: Int?, forward: Bool) -> (unit: Int, page: Int)? {
+		guard units.indices.contains(unit), !pagePositions.isEmpty else { return nil }
+		let target: Int
+		if forward {
+			// Past every page that starts inside the unit, or the reader would turn to one they are already reading.
+			target = (known ?? page(atPosition: lastPosition(ofUnit: unit)) ?? -1) + 1
+		} else if let known {
+			target = known - 1
+		} else if let start = page(atPosition: position(ofUnit: unit)) {
+			target = self.unit(forPosition: pagePositions[start]) == unit ? start - 1 : start
+		} else {
+			return nil
+		}
+		guard pagePositions.indices.contains(target) else { return nil }
+		return (self.unit(forPosition: pagePositions[target]), target)
+	}
+
+	/// The last position in a unit's line.
+	private func lastPosition(ofUnit index: Int) -> Int64 {
+		let line = units[index].line
+		return line + 1 < lineStarts.count ? lineStarts[line + 1] - 1 : Int64.max
+	}
+
+	/// How a page is spoken: its printed number as "Page 812", or the engine's own name for it ("Page 3" in a PDF,
+	/// "Slide 3" in a presentation) as it is.
+	static func pageName(_ label: String) -> String {
+		// TRANSLATORS: A printed page of a book; {} is the number as printed, which may be a roman numeral
+		label.contains(" ") ? label : t("Page {}").replacingOccurrences(of: "{}", with: label)
 	}
 
 	/// The first unit of the block after or before the one holding `unit`.
@@ -234,19 +288,24 @@ final class BookModel {
 		return max(low - 1, 0)
 	}
 
-	/// The unit holding a buffer position, or the last one before it when the position falls on a blank line.
+	/// The unit holding a buffer position, or the last one before it when the position falls on a blank line. On a
+	/// table's line, the row standing at or before the position.
 	func unit(forPosition position: Int64) -> Int {
 		guard !units.isEmpty else { return 0 }
 		let line = line(forPosition: position)
 		let after = unitAtLine.indices.contains(line) ? unitAtLine[line] : units.count
-		if after < units.count, units[after].line == line { return after }
-		return max(after - 1, 0)
+		guard after < units.count, units[after].line == line else { return max(after - 1, 0) }
+		var unit = after
+		while unit + 1 < units.count, units[unit + 1].line == line, self.position(ofUnit: unit + 1) <= position {
+			unit += 1
+		}
+		return unit
 	}
 
 	/// Where a unit starts in the buffer, the position the engine saves and syncs.
 	func position(ofUnit index: Int) -> Int64 {
 		guard units.indices.contains(index) else { return 0 }
-		return lineStarts[units[index].line]
+		return lineStarts[units[index].line] + Int64(units[index].offset)
 	}
 
 	/// The first stop after `index` going forward, or the last one before it going back.
