@@ -50,23 +50,3 @@ final class NavUnitNameTests: XCTestCase {
 		}
 	}
 }
-
-final class AppearanceChoiceTests: XCTestCase {
-	/// Zero has to mean "follow the system" rather than picking a scheme, or a fresh install
-	/// would override whatever the phone is set to.
-	func testTheDefaultChoiceFollowsTheSystem() {
-		XCTAssertNil(0.preferredColorSchemeChoice)
-	}
-
-	func testTheTwoPinnedChoicesMapToTheirSchemes() {
-		XCTAssertEqual(.light, 1.preferredColorSchemeChoice)
-		XCTAssertEqual(.dark, 2.preferredColorSchemeChoice)
-	}
-
-	/// A value stored by a future build with more options must fall back to the system rather
-	/// than pinning the app to something arbitrary.
-	func testAnUnknownChoiceFallsBackToTheSystem() {
-		XCTAssertNil(99.preferredColorSchemeChoice)
-		XCTAssertNil((-1).preferredColorSchemeChoice)
-	}
-}

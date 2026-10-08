@@ -2,7 +2,7 @@ import SwiftUI
 
 struct TextModeView: View {
 	@Environment(AppViewModel.self) private var viewModel
-	let tab: DocumentTab
+	let book: OpenBook
 	@State private var visibleLineIndices: Set<Int> = []
 
 	private var firstVisibleLine: Int { visibleLineIndices.min() ?? 0 }
@@ -88,7 +88,7 @@ struct TextModeView: View {
 		ScrollViewReader { proxy in
 			ScrollView {
 				LazyVStack(alignment: .leading, spacing: 0) {
-					if let session = tab.session {
+					if let session = book.session {
 						let lineCount = session.lineCount()
 						ForEach(0..<Int(lineCount), id: \.self) { i in
 							// The core numbers lines from 1; these indices are 0-based because
@@ -100,7 +100,7 @@ struct TextModeView: View {
 							let markers = session.getLineMarkers(line: lineNumber)
 							let heading = headingLevel(of: markers)
 							Text(line.isEmpty ? AttributedString("\n") : attributedLine(line, lineStart: pos, markers: markers))
-								.readabilityStyle(viewModel)
+								.readabilityStyle()
 								.fontWeight(heading == nil ? .regular : .bold)
 								.padding(.horizontal)
 								.accessibilityAddTraits(heading == nil ? [] : .isHeader)
@@ -116,15 +116,20 @@ struct TextModeView: View {
 					}
 				}
 			}
-			.readingBackground(viewModel)
+			.readingBackground()
 			.onAppear {
-				proxy.scrollTo(tab.lineScrollIndex, anchor: .top)
+				proxy.scrollTo(book.lineScrollIndex, anchor: .top)
+			}
+			// A jump from the table of contents, Find, or Go To moves the scroll index while
+			// this view is still showing underneath.
+			.onChange(of: book.lineScrollIndex) { _, index in
+				proxy.scrollTo(index, anchor: .top)
 			}
 			// Keep the ScrollView's native accessibility scrolling so VoiceOver announces its
 			// page state, while asking it to turn that page automatically during read-all.
 			.accessibilityAddTraits(.causesPageTurn)
 			.environment(\.openURL, OpenURLAction { url in
-				guard let session = tab.session else { return .systemAction }
+				guard let session = book.session else { return .systemAction }
 				return activate(url, in: session, scrollingWith: proxy)
 			})
 		}

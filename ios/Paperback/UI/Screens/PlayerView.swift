@@ -1,6 +1,7 @@
 import SwiftUI
 
-struct TtsModeView: View {
+/// A book with recorded narration: the text being narrated, kept in step with the recording.
+struct PlayerView: View {
 	@Environment(AppViewModel.self) private var viewModel
 
 	var body: some View {
@@ -13,11 +14,11 @@ struct TtsModeView: View {
 						? t("Press play to start listening.")
 						: viewModel.reading.currentSegmentText
 				)
-				.readabilityStyle(viewModel)
+				.readabilityStyle()
 				.padding(.horizontal, 24)
 			}
 			.frame(maxHeight: 400)
-			.readingBackground(viewModel)
+			.readingBackground()
 			if let lineText = positionLine {
 				Text(lineText)
 					.font(.caption)
@@ -37,14 +38,14 @@ struct TtsModeView: View {
 		}
 	}
 
-	/// The line under the caret, shown small beneath the spoken text as a place marker.
+	/// The line under the reading position, shown small beneath the narrated text as a place marker.
 	///
 	/// Left out when the spoken text already contains it, which is what happens whenever a
 	/// paragraph is one line long: the same words would otherwise appear twice on screen, once
 	/// full size and once again underneath.
 	private var positionLine: String? {
 		guard let session = viewModel.activeSession else { return nil }
-		let line = session.getLineText(position: viewModel.reading.ttsPosition)
+		let line = session.getLineText(position: viewModel.reading.position)
 			.trimmingCharacters(in: .whitespacesAndNewlines)
 		if line.isEmpty || viewModel.reading.currentSegmentText.contains(line) {
 			return nil

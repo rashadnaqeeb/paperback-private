@@ -29,22 +29,6 @@ final class FormatDurationTests: XCTestCase {
 	}
 }
 
-final class ExportFormatTests: XCTestCase {
-	/// The picker offers the name this builds, so a format whose extension does not match what
-	/// is actually written would hand the reader a file their system opens with the wrong app.
-	func testEveryFormatHasTheExtensionItsContentIsWrittenIn() {
-		XCTAssertEqual("txt", ExportFormat.text.fileExtension)
-		XCTAssertEqual("html", ExportFormat.html.fileExtension)
-		XCTAssertEqual("md", ExportFormat.markdown.fileExtension)
-	}
-
-	/// A shared extension would make two entries in the picker write files that look identical.
-	func testEveryFormatKnownToTheCoreHasAnExtensionOfItsOwn() {
-		let all: [ExportFormat] = [.text, .html, .markdown]
-		XCTAssertEqual(all.count, Set(all.map(\.fileExtension)).count)
-	}
-}
-
 final class NavUnitTests: XCTestCase {
 	/// Find only earns a place in the list once there is a query to step through, so a unit that
 	/// is a segment must never compare equal to one that is a seek amount.

@@ -1,10 +1,7 @@
 import Foundation
 import Observation
 
-/// An audiobook's own recorded narration, moved from tab to tab as the reader switches
-/// documents. One player serves every open document: only one of them can be narrating at a
-/// time, and holding a decoder open per tab would keep a file handle and a chunk of memory per
-/// book.
+/// An audiobook's own recorded narration, attached to the open book when it has one.
 ///
 /// Where playback has reached is written back to the config on every clip change and every
 /// pause rather than at some later checkpoint, because a book resumed from the wrong place is a
@@ -48,21 +45,21 @@ final class RecordedNarration {
 
 	private(set) var isPlaying = false
 
-	/// Switches to narrating `tab`, picking up from its saved audio position, or from its saved
-	/// reading position when it has never been listened to. Does nothing for a tab with no
+	/// Switches to narrating `book`, picking up from its saved audio position, or from its saved
+	/// reading position when it has never been listened to. Does nothing for a book with no
 	/// recording, or one that is already attached.
-	func attach(to tab: DocumentTab) {
-		let path = tab.url.path(percentEncoded: false)
+	func attach(to book: OpenBook) {
+		let path = book.url.path(percentEncoded: false)
 		if attachedDocumentPath == path { return }
 		detach()
-		guard let session = tab.session, session.hasAudioFfi() else { return }
-		player.attach(session: session, docKey: tab.id.uuidString)
+		guard let session = book.session, session.hasAudioFfi() else { return }
+		player.attach(session: session, docKey: UUID().uuidString)
 		attachedDocumentPath = path
 		let savedAudioMs = config.getDocumentAudioTimeFfi(path: path)
 		if savedAudioMs >= 0 {
 			player.seekToMs(savedAudioMs)
 		} else {
-			player.seekToPosition(tab.currentPosition)
+			player.seekToPosition(book.currentPosition)
 		}
 	}
 

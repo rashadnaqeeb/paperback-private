@@ -105,7 +105,7 @@ struct GoToSheet: View {
 		}
 
 		guard let session else { return }
-		let pos = viewModel.reading.ttsPosition
+		let pos = viewModel.reading.position
 		let status = session.getStatusInfo(position: pos)
 		lineValue = "\(status.lineNumber)"
 		percentValue = Double(status.percentage)

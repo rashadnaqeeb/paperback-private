@@ -61,7 +61,7 @@ final class RecordedNavigationTests: XCTestCase {
 			session.sharedSource = sharedSource
 			let config = AudioPositionConfig(noHandle: .init())
 			let narration = RecordedNarration(config: config)
-			narration.attach(to: DocumentTab(title: "Book", url: URL(fileURLWithPath: "/book"), session: session))
+			narration.attach(to: OpenBook(title: "Book", url: URL(fileURLWithPath: "/book"), session: session))
 			defer { narration.detach() }
 			let context = AudioReadingContext()
 			context.activeSession = session
@@ -70,20 +70,19 @@ final class RecordedNavigationTests: XCTestCase {
 			reading.narration = narration
 			reading.currentNavUnit = .segment(.section)
 
-			XCTAssertFalse(reading.playPrevSegment(speak: false))
-			XCTAssertTrue(reading.playNextSegment(speak: false))
+			XCTAssertFalse(reading.movePrevious())
+			XCTAssertTrue(reading.moveNext())
 			XCTAssertEqual(config.savedMs, 10_000)
 			XCTAssertEqual(context.position, 1)
 			XCTAssertEqual(reading.currentSegmentText, "Chapter 2")
-			XCTAssertFalse(reading.isPlayingNow)
-			XCTAssertFalse(reading.ttsManager.isSpeaking)
-			XCTAssertTrue(reading.playNextSegment(speak: false))
+			XCTAssertFalse(reading.isPlaying)
+			XCTAssertTrue(reading.moveNext())
 			XCTAssertEqual(config.savedMs, 20_000)
-			XCTAssertFalse(reading.playNextSegment(speak: false))
-			reading.navigateByType(.section, direction: .previous)
+			XCTAssertFalse(reading.moveNext())
+			XCTAssertTrue(reading.movePrevious())
 			XCTAssertEqual(config.savedMs, 10_000)
-			XCTAssertEqual(reading.ttsPosition, 1)
-			XCTAssertTrue(reading.playPrevSegment(speak: false))
+			XCTAssertEqual(reading.position, 1)
+			XCTAssertTrue(reading.movePrevious())
 			XCTAssertEqual(config.savedMs, 0)
 		}
 	}
@@ -91,7 +90,7 @@ final class RecordedNavigationTests: XCTestCase {
 	func testPlaybackStateIsObservableAndResetsAfterSourceFailure() async {
 		let session = SectionAudioSession(noHandle: .init())
 		let narration = RecordedNarration(config: AudioPositionConfig(noHandle: .init()))
-		narration.attach(to: DocumentTab(title: "Book", url: URL(fileURLWithPath: "/book"), session: session))
+		narration.attach(to: OpenBook(title: "Book", url: URL(fileURLWithPath: "/book"), session: session))
 		defer { narration.detach() }
 		let invalidated = expectation(description: "Playback invalidates the view's observation")
 		withObservationTracking {
@@ -120,8 +119,8 @@ final class RecordedNavigationTests: XCTestCase {
 		let player = DaisyAudioPlayer()
 		let config = AudioPositionConfig(noHandle: .init())
 		let narration = RecordedNarration(config: config, player: player)
-		let tab = DocumentTab(title: "Book", url: URL(fileURLWithPath: "/book"), session: session)
-		narration.attach(to: tab)
+		let book = OpenBook(title: "Book", url: URL(fileURLWithPath: "/book"), session: session)
+		narration.attach(to: book)
 		defer { narration.detach() }
 		narration.play()
 		// Wait for the real decoder to load and move beyond the pending start position.
@@ -141,11 +140,11 @@ final class RecordedNavigationTests: XCTestCase {
 		XCTAssertEqual(player.resumePointMs(), 0)
 		XCTAssertTrue(narration.seekToPosition(1))
 		narration.detach()
-		narration.attach(to: tab)
+		narration.attach(to: book)
 		XCTAssertEqual(player.resumePointMs(), 10_000)
 	}
 
-	func testSectionNavigationWhilePlayingMovesAudioWithoutStartingSpeech() async throws {
+	func testSectionNavigationWhilePlayingMovesAudio() async throws {
 		let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".wav")
 		defer { try? FileManager.default.removeItem(at: url) }
 		try writeSilentAudio(to: url)
@@ -155,7 +154,7 @@ final class RecordedNavigationTests: XCTestCase {
 			session.audioPath = url.path
 			let player = DaisyAudioPlayer()
 			let narration = RecordedNarration(config: AudioPositionConfig(noHandle: .init()), player: player)
-			narration.attach(to: DocumentTab(title: "Book", url: URL(fileURLWithPath: "/book"), session: session))
+			narration.attach(to: OpenBook(title: "Book", url: URL(fileURLWithPath: "/book"), session: session))
 			defer { narration.detach() }
 			let context = AudioReadingContext()
 			context.activeSession = session
@@ -164,23 +163,22 @@ final class RecordedNavigationTests: XCTestCase {
 			reading.narration = narration
 			reading.currentNavUnit = .segment(.section)
 			reading.togglePlayPause()
-			XCTAssertTrue(reading.isPlayingNow)
-			XCTAssertTrue(reading.playNextSegment())
+			XCTAssertTrue(reading.isPlaying)
+			XCTAssertTrue(reading.moveNext())
 			for _ in 0..<200 {
 				if (player.resumePointMs() ?? 0) > 10_000 { break }
 				try await Task.sleep(for: .milliseconds(10))
 			}
 			XCTAssertGreaterThan(player.resumePointMs() ?? 0, 10_000)
-			XCTAssertTrue(reading.isPlayingNow)
-			XCTAssertFalse(reading.ttsManager.isSpeaking)
+			XCTAssertTrue(reading.isPlaying)
 			XCTAssertEqual(reading.currentSegmentText, "Chapter 2")
-			XCTAssertTrue(reading.playPrevSegment())
+			XCTAssertTrue(reading.movePrevious())
 			XCTAssertLessThan(player.resumePointMs() ?? 30_000, 10_000)
-			XCTAssertTrue(reading.isPlayingNow)
+			XCTAssertTrue(reading.isPlaying)
 			reading.togglePlayPause()
-			XCTAssertFalse(reading.isPlayingNow)
+			XCTAssertFalse(reading.isPlaying)
 			narration.detach()
-			XCTAssertFalse(reading.isPlayingNow)
+			XCTAssertFalse(reading.isPlaying)
 		}
 	}
 

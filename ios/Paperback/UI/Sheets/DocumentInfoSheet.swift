@@ -16,7 +16,7 @@ struct DocumentInfoSheet: View {
 				VStack(spacing: 0) {
 					if let session = viewModel.activeSession {
 						let title = session.title().isEmpty
-							? (viewModel.activeTab?.title ?? "—")
+							? (viewModel.book?.title ?? "—")
 							: session.title()
 						let author = session.author()
 						let stats = session.getStatsFfi()
@@ -29,7 +29,7 @@ struct DocumentInfoSheet: View {
 						}
 						Divider().padding(.leading, 16)
 						// TRANSLATORS: Label for the document's file name in the Document Information dialog
-						infoRow(t("File Name"), value: viewModel.activeTab?.url.lastPathComponent ?? "—")
+						infoRow(t("File Name"), value: viewModel.book?.url.lastPathComponent ?? "—")
 						Divider().padding(.leading, 16)
 						// TRANSLATORS: Row label for the document's total word count
 						infoRow(t("Words"), value: stats.wordCount.formatted())
@@ -44,10 +44,10 @@ struct DocumentInfoSheet: View {
 						infoRow(t("Characters (excluding spaces)"), value: stats.charCountNoWhitespace.formatted())
 					} else {
 						// TRANSLATORS: Row label for the document's title in the Document Info sheet, shown when no document is open
-						infoRow(t("Title"), value: viewModel.activeTab?.title ?? "—")
+						infoRow(t("Title"), value: viewModel.book?.title ?? "—")
 						Divider().padding(.leading, 16)
 						// TRANSLATORS: Label for the document's file name in the Document Information dialog
-						infoRow(t("File Name"), value: viewModel.activeTab?.url.lastPathComponent ?? "—")
+						infoRow(t("File Name"), value: viewModel.book?.url.lastPathComponent ?? "—")
 					}
 				}
 				.background(Color(.secondarySystemBackground))

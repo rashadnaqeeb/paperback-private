@@ -23,7 +23,7 @@ struct TocView: View {
 
 	// A position before the first entry counts as being in it, so there is always a row to land on.
 	private func activeIndex(in entries: [TocEntry]) -> Int {
-		entries.lastIndex(where: { $0.position <= viewModel.reading.ttsPosition }) ?? 0
+		entries.lastIndex(where: { $0.position <= viewModel.reading.position }) ?? 0
 	}
 
 	@ViewBuilder private var emptyView: some View {

@@ -1,14 +1,15 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// The home screen: the books folder's books. Opening one pushes the reader; Exit Book comes back here.
 struct BooksView: View {
 	@Environment(AppViewModel.self) private var viewModel
-	@Environment(\.dismiss) private var dismiss
 	@State private var choosingFolder = false
+	@State private var showingSettings = false
 	@State private var downloading: URL? = nil
 
 	var body: some View {
-		let library = viewModel.booksFolder
+		@Bindable var library = viewModel.booksFolder
 		Group {
 			if library.folderURL == nil {
 				ContentUnavailableView {
@@ -47,16 +48,49 @@ struct BooksView: View {
 		.navigationTitle(t("Books"))
 		.navigationBarTitleDisplayMode(.inline)
 		.toolbar {
-			if library.folderURL != nil {
-				ToolbarItem(placement: .topBarTrailing) {
-					// TRANSLATORS: Button on the Books screen that picks a different books folder
-					Button(t("Change Folder")) { choosingFolder = true }
+			ToolbarItemGroup(placement: .topBarTrailing) {
+				if library.folderURL != nil {
+					Menu {
+						// TRANSLATORS: Label of the choice of order for the list of books
+						Picker(t("Sort"), selection: $library.sort) {
+							// TRANSLATORS: Sort order listing books alphabetically by title
+							Text(t("Title")).tag(BookSort.title)
+							// TRANSLATORS: Sort order listing the most recently opened books first
+							Text(t("Recently Read")).tag(BookSort.recent)
+						}
+					} label: {
+						// TRANSLATORS: Button that opens the choice of order for the list of books
+						Label(t("Sort"), systemImage: "arrow.up.arrow.down")
+					}
+				}
+				Button { showingSettings = true } label: {
+					// TRANSLATORS: Button that opens the app's settings
+					Label(t("Settings"), systemImage: "gear")
 				}
 			}
 		}
 		.fileImporter(isPresented: $choosingFolder, allowedContentTypes: [.folder]) { result in
 			guard case .success(let url) = result else { return }
 			library.choose(url)
+		}
+		.navigationDestination(isPresented: $showingSettings) {
+			SettingsView()
+		}
+		.navigationDestination(isPresented: Binding(
+			get: { viewModel.book != nil },
+			set: { if !$0 { viewModel.closeBook() } }
+		)) {
+			ReaderView()
+		}
+		// TRANSLATORS: Title of the alert shown when a document fails to open
+		.alert(t("Open Error"), isPresented: Binding(
+			get: { viewModel.debugMessage != nil },
+			set: { if !$0 { viewModel.debugMessage = nil } }
+		)) {
+			// TRANSLATORS: Button dismissing the document-open-error alert
+			Button(t("OK")) { viewModel.debugMessage = nil }
+		} message: {
+			Text(viewModel.debugMessage ?? "")
 		}
 		.onAppear { library.refresh() }
 		.onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
@@ -71,9 +105,7 @@ struct BooksView: View {
 		Task {
 			defer { downloading = nil }
 			do {
-				let local = try await BooksFolder.download(book)
-				viewModel.openDocument(url: local)
-				if viewModel.activeTab?.url == local { dismiss() }
+				viewModel.openBook(url: try await BooksFolder.download(book))
 			} catch {
 				viewModel.debugMessage = "Error downloading '\(book.lastPathComponent)':\n\(error)"
 			}

@@ -5,26 +5,10 @@ import UIKit
 @MainActor
 @Observable
 final class AppViewModel {
-	var tabs: [DocumentTab] = []
-	// Stops TTS whenever the active document changes so a paused/playing utterance from the
-	// previous book can never bleed into the next one (its buffer stays scheduled on the audio
-	// node across pause() until something clears it — see TtsManager.pause()).
-	var activeTabId: UUID? = nil {
-		willSet {
-			if newValue != activeTabId { reading.saveTextModePosition() }
-		}
-		didSet {
-			guard activeTabId != oldValue else { return }
-			reading.ttsManager.stop()
-		}
-	}
+	/// The one book being read, or nil while the library is showing.
+	private(set) var book: OpenBook?
 
-	var activeTab: DocumentTab? {
-		guard let id = activeTabId else { return nil }
-		return tabs.first { $0.id == id }
-	}
-
-	var activeSession: DocumentSession? { activeTab?.session }
+	var activeSession: DocumentSession? { book?.session }
 
 	let navigation = NavigationRouter()
 
@@ -32,78 +16,34 @@ final class AppViewModel {
 
 	let booksFolder = BooksFolder()
 
-	var restorePreviousDocuments = true {
-		didSet { configManager.setAppBool(key: "restore_previous_documents", value: restorePreviousDocuments) }
-	}
 	var swipeUpMovesForward = true {
 		didSet { configManager.setAppBool(key: "swipe_up_moves_forward", value: swipeUpMovesForward) }
 	}
-
-	// Spacing and alignment share the desktop's config keys and value meanings (spacing
-	// 0/1/2, alignment 0 leading, 1 center, 2 trailing) so a document reads the same way on
-	// both. Text size does not: the desktop stores an absolute point size, while this scales
-	// whatever size Dynamic Type is already asking for.
-	var textScalePercent: Int = 100 {
-		didSet { configManager.setAppInt(key: "text_scale_percent", value: Int32(textScalePercent)) }
-	}
-	var lineSpacingChoice: Int = 0 {
-		didSet { configManager.setAppInt(key: "line_spacing", value: Int32(lineSpacingChoice)) }
-	}
-	var paragraphSpacingChoice: Int = 0 {
-		didSet { configManager.setAppInt(key: "paragraph_spacing", value: Int32(paragraphSpacingChoice)) }
-	}
-	var textAlignmentChoice: Int = 0 {
-		didSet { configManager.setAppInt(key: "text_alignment", value: Int32(textAlignmentChoice)) }
-	}
-	/// 0 follows the system, 1 forces light, 2 forces dark. Readers often want the page dark
-	/// while the rest of the phone stays light, which following the system alone cannot do.
-	/// Drops the previous and next buttons from the reading bar's screen reader order. They
+	/// Drops the player's previous and next buttons from the screen reader order. They
 	/// duplicate the swipe up and down actions already on the play button, so hiding them makes
 	/// the bar three stops instead of five. Off by default: the swipe is not discoverable on its
 	/// own, so nobody should lose the buttons without having chosen to.
 	var hidePrevNextButtons: Bool = false {
 		didSet { configManager.setAppBool(key: "hide_prev_next_buttons", value: hidePrevNextButtons) }
 	}
-	var appearanceChoice: Int = 0 {
-		didSet { configManager.setAppInt(key: "appearance", value: Int32(appearanceChoice)) }
-	}
-	/// Pure black on white, or white on black, for document text. The system's own Increase
-	/// Contrast setting turns this on too, so a reader who has already asked for it everywhere
-	/// does not have to ask again here.
-	var highContrastText: Bool = false {
-		didSet { configManager.setAppBool(key: "high_contrast_text", value: highContrastText) }
-	}
-
-	var recentDocuments: [RecentDocument] = []
 
 	let configManager = ConfigManagerFfi()
 	@ObservationIgnored private var cancellables = Set<AnyCancellable>()
 
 	init() {
 		setPdfiumLibraryPath(path: Bundle.main.bundlePath + "/Frameworks/libpdfium.framework")
-
-		let configPath = configFilePath()
-		_ = configManager.initialize(configPath: configPath)
-		restorePreviousDocuments = configManager.getAppBool(key: "restore_previous_documents", defaultValue: true)
+		_ = configManager.initialize(configPath: configFilePath())
 		swipeUpMovesForward = configManager.getAppBool(key: "swipe_up_moves_forward", defaultValue: true)
-		textScalePercent = Int(configManager.getAppInt(key: "text_scale_percent", defaultValue: 100))
-		lineSpacingChoice = Int(configManager.getAppInt(key: "line_spacing", defaultValue: 0))
-		paragraphSpacingChoice = Int(configManager.getAppInt(key: "paragraph_spacing", defaultValue: 0))
-		textAlignmentChoice = Int(configManager.getAppInt(key: "text_alignment", defaultValue: 0))
 		hidePrevNextButtons = configManager.getAppBool(key: "hide_prev_next_buttons", defaultValue: false)
-		appearanceChoice = Int(configManager.getAppInt(key: "appearance", defaultValue: 0))
-		highContrastText = configManager.getAppBool(key: "high_contrast_text", defaultValue: false)
-
 		reading.context = self
-
 		let narration = RecordedNarration(config: configManager)
 		narration.onClipChanged = { [weak self] position in
 			// The recording is the authority on where the reader is while it plays, so the
-			// caret and the displayed text follow it rather than the other way round.
+			// position and the displayed text follow it rather than the other way round.
 			guard let self else { return }
-			self.reading.ttsPosition = position
+			self.reading.position = position
 			self.reading.refreshSegmentForAudio()
-			self.updateTabPosition(position)
+			self.updatePosition(position)
 		}
 		narration.onPlayingChanged = { [weak self] _ in
 			self?.reading.updateNowPlaying()
@@ -112,46 +52,7 @@ final class AppViewModel {
 			self?.reading.announceAudioSeekLanded(elapsedMs)
 		}
 		reading.narration = narration
-
-		let ttsManager = reading.ttsManager
-		let savedRate = configManager.getAppString(key: "tts_speech_rate", defaultValue: "")
-		if let r = Float(savedRate) { ttsManager.speechRate = r }
-
-		let savedPitch = configManager.getAppString(key: "tts_pitch", defaultValue: "")
-		if let p = Float(savedPitch) { ttsManager.pitch = p }
-
-		let savedPause = configManager.getAppString(key: "tts_paragraph_pause_ms", defaultValue: "")
-		if let ms = Int(savedPause) {
-			ttsManager.paragraphPauseMs = min(max(ms, paragraphPauseRangeMs.lowerBound), paragraphPauseRangeMs.upperBound)
-		}
-
-		let savedVoice = configManager.getAppString(key: "tts_voice_identifier", defaultValue: "")
-		if !savedVoice.isEmpty { ttsManager.selectedVoiceIdentifier = savedVoice }
-
-		loadRecentsFromConfig()
 		reading.start()
-		ttsManager.onSpeechRateChanged = { [weak self] rate in
-			self?.configManager.setAppString(key: "tts_speech_rate", value: "\(rate)")
-		}
-		ttsManager.onPitchChanged = { [weak self] pitch in
-			self?.configManager.setAppString(key: "tts_pitch", value: "\(pitch)")
-		}
-		ttsManager.onParagraphPauseChanged = { [weak self] ms in
-			self?.configManager.setAppString(key: "tts_paragraph_pause_ms", value: "\(ms)")
-		}
-		ttsManager.onVoiceChanged = { [weak self] identifier in
-			self?.configManager.setAppString(key: "tts_voice_identifier", value: identifier ?? "")
-		}
-
-		reading.isTextMode = configManager.getAppBool(key: "text_mode", defaultValue: false)
-		reading.onTextModeChanged = { [weak self] isTextMode in
-			self?.configManager.setAppBool(key: "text_mode", value: isTextMode)
-		}
-		if restorePreviousDocuments {
-			for path in configManager.getOpenedDocuments() {
-				tryRestoreDocument(path: path)
-			}
-		}
 		NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)
 			.sink { [weak self] _ in
 				self?.reading.saveTextModePosition()
@@ -166,260 +67,82 @@ final class AppViewModel {
 			}
 			.store(in: &cancellables)
 		reading.updateNowPlaying()
+		reopenLastBook()
 	}
 
 	var debugMessage: String? = nil
 
-	func openDocument(url: URL, password: String? = nil, track: Bool = true) {
-		if let existing = tabs.first(where: { $0.url == url }) {
-			activeTabId = existing.id
-			return
+	/// The file name of the book open when the app last ran, cleared by Exit Book. Kept as a name
+	/// inside the books folder rather than a path so it survives the folder being chosen again.
+	private static let openBookKey = "pb_open_book"
+
+	private func reopenLastBook() {
+		guard let name = UserDefaults.standard.string(forKey: Self.openBookKey), let folder = booksFolder.folderURL else { return }
+		let url = folder.appendingPathComponent(name)
+		Task {
+			guard let local = try? await BooksFolder.download(url), book == nil else { return }
+			openBook(url: local)
 		}
-		let scopeStarted = url.startAccessingSecurityScopedResource()
+	}
+
+	/// Opens `url` in place of whatever book was open. The file's access comes from the books
+	/// folder's security scope, which BooksFolder holds for the life of the app.
+	func openBook(url: URL) {
+		if book?.url == url { return }
+		closeBook()
 		let path = url.path(percentEncoded: false)
-		let pass = password ?? configManager.getDocumentPassword(path: path)
 		do {
 			let session = try DocumentSession.newFfi(
 				filePath: path,
-				password: pass,
+				password: configManager.getDocumentPassword(path: path),
 				forcedExtension: "",
 				renderTablesInline: false
 			)
-			let title = session.title().isEmpty
-				? url.deletingPathExtension().lastPathComponent
-				: session.title()
-			let savedPos = configManager.getDocumentPosition(path: path)
-			var tab = DocumentTab(title: title, url: url, session: session)
-			tab.currentPosition = savedPos
-			tab.securityScopeURL = scopeStarted ? url : nil
-			tabs.append(tab)
-			activeTabId = tab.id
-			if track {
-				configManager.addRecentDocument(path: path)
-				configManager.addOpenedDocument(path: path)
-				loadRecentsFromConfig()
-				saveBookmark(for: url, path: path)
-			}
-			reading.loadSegment(for: tab)
-			if reading.isTextMode { reading.enterTextMode() }
+			let title = session.title().isEmpty ? url.deletingPathExtension().lastPathComponent : session.title()
+			let opened = OpenBook(title: title, url: url, currentPosition: configManager.getDocumentPosition(path: path), session: session)
+			book = opened
+			booksFolder.markRead(url)
+			UserDefaults.standard.set(url.lastPathComponent, forKey: Self.openBookKey)
+			reading.loadSegment(for: opened)
 			reading.updateNowPlaying()
 		} catch {
-			if scopeStarted { url.stopAccessingSecurityScopedResource() }
 			debugMessage = "Error opening '\(url.lastPathComponent)':\n\(error)\n\nPath: \(path)"
 		}
 	}
 
-	func openHelpDocument() {
-		let preferred = Bundle.main.preferredLocalizations.first ?? "en"
-		let lang = preferred.split(separator: "-").first.map(String.init) ?? preferred
-		// Try the localized doc first, falling back to English rather than checking a
-		// hardcoded language list against a hand-maintained set of resource names — that
-		// list drifts out of sync with which readme-<lang>.html files actually exist.
-		let localizedURL = Bundle.main.url(forResource: "readme-\(lang)", withExtension: "html", subdirectory: "Readmes")
-		let fallbackURL = Bundle.main.url(forResource: "readme", withExtension: "html", subdirectory: "Readmes")
-		guard let url = localizedURL ?? fallbackURL else {
-			// TRANSLATORS: Shown when the bundled Help document fails to load
-			debugMessage = t("Failed to load document.")
-			return
-		}
-		openDocument(url: url, track: false)
+	/// Saves where the reader got to and returns to the library. The position itself is already
+	/// in the config: every move writes it there.
+	func closeBook() {
+		guard book != nil else { return }
+		reading.saveTextModePosition()
+		reading.narration?.detach()
+		reading.cancelSleepTimer()
+		reading.activeSearchQuery = nil
+		configManager.flush()
+		UserDefaults.standard.removeObject(forKey: Self.openBookKey)
+		book = nil
+		reading.updateNowPlaying()
 	}
 
-	// Writes the active document's bookmarks/position to a temporary .paperback
-	// file and returns its URL, ready to hand to a file mover/exporter. Returns
-	// nil if there's no active document or the write failed.
-	func exportActiveDocumentSettings() -> URL? {
-		guard let tab = activeTab else { return nil }
-		let path = tab.url.path(percentEncoded: false)
-		let name = tab.url.deletingPathExtension().lastPathComponent
-		let tempURL = FileManager.default.temporaryDirectory
-			.appendingPathComponent(name)
-			.appendingPathExtension("paperback")
-		try? FileManager.default.removeItem(at: tempURL)
-		configManager.exportDocumentSettings(docPath: path, exportPath: tempURL.path(percentEncoded: false))
-		return FileManager.default.fileExists(atPath: tempURL.path) ? tempURL : nil
-	}
-
-	/// The export formats the open document can be rendered as, which the core decides per
-	/// document rather than per app.
-	var supportedExportFormats: [ExportFormat] {
-		activeSession?.getSupportedExportFormatsFfi() ?? []
-	}
-
-	/// Renders the open document in `format` to a temporary file named after the book, ready to
-	/// hand to the file mover. Nil when there is nothing open or the write failed.
-	func exportActiveDocument(as format: ExportFormat) -> URL? {
-		guard let tab = activeTab, let session = tab.session else { return nil }
-		let name = tab.url.deletingPathExtension().lastPathComponent
-		let tempURL = FileManager.default.temporaryDirectory
-			.appendingPathComponent(name)
-			.appendingPathExtension(format.fileExtension)
-		try? FileManager.default.removeItem(at: tempURL)
-		do {
-			try session.renderExportFfi(format: format).write(to: tempURL, atomically: true, encoding: .utf8)
-		} catch {
-			return nil
-		}
-		return tempURL
-	}
-
-	/// Copies the open document's own file, untouched, to a temporary file to be shared.
-	///
-	/// A copy rather than the file itself: the original may live behind a security-scoped URL the
-	/// share sheet cannot read once this returns.
-	func copyActiveDocumentForSharing() -> URL? {
-		guard let tab = activeTab else { return nil }
-		let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(tab.url.lastPathComponent)
-		let scopeStarted = tab.url.startAccessingSecurityScopedResource()
-		defer { if scopeStarted { tab.url.stopAccessingSecurityScopedResource() } }
-		try? FileManager.default.removeItem(at: tempURL)
-		do {
-			try FileManager.default.copyItem(at: tab.url, to: tempURL)
-		} catch {
-			return nil
-		}
-		return tempURL
-	}
-
-	// Applies a .paperback file's bookmarks/position to the active document.
-	@discardableResult
-	func importActiveDocumentSettings(from url: URL) -> Bool {
-		guard let tab = activeTab else { return false }
-		let scopeStarted = url.startAccessingSecurityScopedResource()
-		defer { if scopeStarted { url.stopAccessingSecurityScopedResource() } }
-		guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else { return false }
-		let path = tab.url.path(percentEncoded: false)
-		configManager.importSettingsFromFile(docPath: path, importPath: url.path(percentEncoded: false))
-		let savedPos = configManager.getDocumentPosition(path: path)
-		if let idx = tabs.firstIndex(where: { $0.id == tab.id }) {
-			tabs[idx].currentPosition = savedPos
-		}
-		if activeTabId == tab.id {
-			reading.goToPosition(savedPos)
-		}
-		return true
-	}
-
-	func closeTab(_ tab: DocumentTab) {
-		if tab.id == activeTabId { reading.saveTextModePosition() }
-		let path = tab.url.path(percentEncoded: false)
-		if tab.session != nil {
-			let position = tabs.first { $0.id == tab.id }?.currentPosition ?? tab.currentPosition
+	private func updatePosition(_ position: Int64) {
+		guard book != nil else { return }
+		book?.currentPosition = position
+		if let path = book?.url.path(percentEncoded: false) {
 			configManager.setDocumentPosition(path: path, position: position)
 		}
-		configManager.removeOpenedDocument(path: path)
-		tab.securityScopeURL?.stopAccessingSecurityScopedResource()
-		tabs.removeAll { $0.id == tab.id }
-		if activeTabId == tab.id {
-			activeTabId = tabs.last?.id
-		}
-	}
-
-	func setActiveTab(_ tab: DocumentTab) {
-		activeTabId = tab.id
-		if let t = activeTab {
-			reading.loadSegment(for: t)
-			if reading.isTextMode { reading.enterTextMode() }
-		}
-	}
-
-	private func loadRecentsFromConfig() {
-		let paths = configManager.getRecentDocuments()
-		let openPaths = Set(tabs.map { $0.url.path(percentEncoded: false) })
-		recentDocuments = paths.map { path in
-			// Resolve the persisted security-scoped bookmark rather than constructing a plain
-			// path URL: files picked from outside the app's own container (the common case)
-			// aren't readable via a bare path once the picker's access grant has ended, which
-			// otherwise shows every such entry as missing and fails to open with a parse error.
-			let resolved = resolvedURL(forPath: path)
-			let url = resolved ?? URL(fileURLWithPath: path)
-			let title = url.deletingPathExtension().lastPathComponent
-			return RecentDocument(
-				title: title,
-				url: url,
-				isMissing: resolved == nil,
-				isOpen: openPaths.contains(path)
-			)
-		}
-	}
-
-	func addRecentDocument(url: URL, title: String) {
-		configManager.addRecentDocument(path: url.path(percentEncoded: false))
-		loadRecentsFromConfig()
-	}
-
-	// Points a recent-document entry at a new file location, e.g. after the
-	// original was moved or renamed outside the app.
-	func locateRecentDocument(_ oldURL: URL, at newURL: URL) {
-		configManager.renameDocumentPath(
-			oldPath: oldURL.path(percentEncoded: false),
-			newPath: newURL.path(percentEncoded: false)
-		)
-		loadRecentsFromConfig()
-	}
-
-	/// Empties the recent documents list. Open tabs are left alone: a document being read is
-	/// not a document the reader is finished with.
-	func clearRecentDocuments() {
-		configManager.clearRecentDocuments()
-		recentDocuments.removeAll()
-	}
-
-	func removeRecentDocument(url: URL) {
-		configManager.removeDocumentHistory(path: url.path(percentEncoded: false))
-		recentDocuments.removeAll { $0.url == url }
-	}
-
-	private func tryRestoreDocument(path: String) {
-		guard let url = resolvedURL(forPath: path) else { return }
-		openDocument(url: url)
-	}
-
-	// Resolves a stored path back to a usable URL: prefers the persisted security-scoped
-	// bookmark (needed for files outside the app's own container), falling back to a plain
-	// path URL for files the app can read directly. Returns nil if neither resolves.
-	private func resolvedURL(forPath path: String) -> URL? {
-		if let data = UserDefaults.standard.data(forKey: bookmarkKey(path)) {
-			var isStale = false
-			if let url = try? URL(resolvingBookmarkData: data, bookmarkDataIsStale: &isStale) {
-				return url
-			}
-		}
-		return FileManager.default.fileExists(atPath: path) ? URL(fileURLWithPath: path) : nil
-	}
-
-	private func saveBookmark(for url: URL, path: String) {
-		guard let data = try? url.bookmarkData(options: .minimalBookmark, includingResourceValuesForKeys: nil, relativeTo: nil) else { return }
-		UserDefaults.standard.set(data, forKey: bookmarkKey(path))
-	}
-
-	private func bookmarkKey(_ path: String) -> String {
-		"pb_bm_\(path)"
-	}
-
-	private func updateTabPosition(_ position: Int64) {
-		guard let id = activeTabId,
-		      let idx = tabs.firstIndex(where: { $0.id == id }) else { return }
-		tabs[idx].currentPosition = position
-		let path = tabs[idx].url.path(percentEncoded: false)
-		configManager.setDocumentPosition(path: path, position: position)
 	}
 }
 
 extension AppViewModel: ReadingContext {
-	var activeTitle: String? { activeTab?.title }
+	var activeTitle: String? { book?.title }
 
 	var activeLineScrollIndex: Int {
-		get { activeTab?.lineScrollIndex ?? 0 }
-		set {
-			guard let id = activeTabId,
-			      let idx = tabs.firstIndex(where: { $0.id == id }) else { return }
-			tabs[idx].lineScrollIndex = newValue
-		}
+		get { book?.lineScrollIndex ?? 0 }
+		set { book?.lineScrollIndex = newValue }
 	}
 
 	func persistPosition(_ position: Int64) {
-		updateTabPosition(position)
+		updatePosition(position)
 	}
 }
 

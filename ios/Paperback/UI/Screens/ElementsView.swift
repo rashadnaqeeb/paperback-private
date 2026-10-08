@@ -8,8 +8,8 @@ struct ElementsView: View {
 	var body: some View {
 		Group {
 			if let session = viewModel.activeSession {
-				let headings = session.getHeadingTreeFfi(position: viewModel.reading.ttsPosition)
-				let links = session.getLinkListFfi(position: viewModel.reading.ttsPosition)
+				let headings = session.getHeadingTreeFfi(position: viewModel.reading.position)
+				let links = session.getLinkListFfi(position: viewModel.reading.position)
 				if headings.items.isEmpty && links.items.isEmpty {
 					emptyView
 				} else {

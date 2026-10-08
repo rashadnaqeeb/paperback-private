@@ -1,16 +1,29 @@
 import Foundation
 
+enum BookSort: String, CaseIterable {
+	case title, recent
+}
+
 // The library: one folder picked once (normally iCloud Drive's books folder) and listed from then on, so books never
-// have to be found through the file picker again. Every book inside is readable through the folder's security scope,
-// which is held for the life of the app; it has to be in place before the view model restores the previous session's
-// documents, which is why the view model creates this first.
+// have to be found through a file picker. Every book inside is readable through the folder's security scope, which is
+// held for the life of the app.
 @MainActor
 @Observable
 final class BooksFolder {
 	private(set) var folderURL: URL?
 	private(set) var books: [URL] = []
+	var sort: BookSort = BookSort(rawValue: UserDefaults.standard.string(forKey: BooksFolder.sortKey) ?? "") ?? .title {
+		didSet {
+			UserDefaults.standard.set(sort.rawValue, forKey: Self.sortKey)
+			refresh()
+		}
+	}
+	// When each book was last opened, keyed by file name rather than path so it survives the folder being chosen again.
+	private var lastRead: [String: Double] = UserDefaults.standard.dictionary(forKey: BooksFolder.lastReadKey) as? [String: Double] ?? [:]
 
 	private static let bookmarkKey = "pb_books_folder"
+	private static let sortKey = "pb_books_sort"
+	private static let lastReadKey = "pb_books_last_read"
 
 	init() {
 		guard let data = UserDefaults.standard.data(forKey: Self.bookmarkKey) else { return }
@@ -29,9 +42,22 @@ final class BooksFolder {
 	func refresh() {
 		guard let folderURL else { return }
 		let items = (try? FileManager.default.contentsOfDirectory(at: folderURL, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
-		books = Set(items.compactMap(Self.book(for:))).sorted {
-			$0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending
+		let found = Set(items.compactMap(Self.book(for:)))
+		let byTitle = found.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+		switch sort {
+		case .title:
+			books = byTitle
+		case .recent:
+			// Books never opened keep their title order after every book that has been.
+			let read = byTitle.filter { lastRead[$0.lastPathComponent] != nil }.sorted { lastRead[$0.lastPathComponent]! > lastRead[$1.lastPathComponent]! }
+			books = read + byTitle.filter { lastRead[$0.lastPathComponent] == nil }
 		}
+	}
+
+	func markRead(_ book: URL) {
+		lastRead[book.lastPathComponent] = Date().timeIntervalSince1970
+		UserDefaults.standard.set(lastRead, forKey: Self.lastReadKey)
+		if sort == .recent { refresh() }
 	}
 
 	static func title(of book: URL) -> String {
