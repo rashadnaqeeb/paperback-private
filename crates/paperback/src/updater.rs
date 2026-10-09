@@ -4,6 +4,7 @@
 use std::{env, sync::Arc};
 
 use paperback_core::version;
+use patois::t;
 use ship_shape::{InstallKind, UpdateChannel as ShipChannel, UpdaterConfig, ui::CheckTrigger};
 use wxdragon::prelude::*;
 
@@ -96,6 +97,20 @@ fn beat_foreground_grant() {
 fn beat_foreground_grant() {}
 
 pub fn run_update_check(parent: &Frame, silent: bool, channel: UpdateChannel) {
+	// The fork's private Mac build: an update from upstream's releases would replace it with upstream's app, losing sync
+	// and the paragraph repair.
+	if cfg!(target_os = "macos") {
+		if !silent {
+			// TRANSLATORS: Shown by Check for Updates in a private build of Paperback that does not update itself
+			let message = t("Updates are turned off in this build of Paperback.");
+			// TRANSLATORS: Title of the dialog saying updates are turned off in this build
+			let dialog = MessageDialog::builder(parent, &message, &t("Check for Updates"))
+				.with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation | MessageDialogStyle::Centre)
+				.build();
+			dialog.show_modal();
+		}
+		return;
+	}
 	tracing::info!(channel = %channel, silent, "checking for updates");
 	let install_kind = if is_installer_distribution() { InstallKind::Installer } else { InstallKind::Portable };
 	let config = UpdaterConfig::new(
