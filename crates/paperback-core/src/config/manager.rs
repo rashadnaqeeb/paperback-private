@@ -23,6 +23,7 @@ mod document_list;
 mod document_state;
 mod documents;
 mod find;
+mod fork_sync;
 mod keybindings;
 mod readability;
 mod sidecar;
@@ -34,6 +35,7 @@ pub struct ConfigManager {
 	config_path: PathBuf,
 	dirty: Cell<bool>,
 	initialized: bool,
+	sync: RefCell<fork_sync::SyncState>,
 }
 
 impl Default for ConfigManager {
@@ -50,6 +52,7 @@ impl ConfigManager {
 			config_path: PathBuf::new(),
 			dirty: Cell::new(false),
 			initialized: false,
+			sync: RefCell::default(),
 		}
 	}
 
@@ -155,7 +158,11 @@ impl ConfigManager {
 	}
 
 	pub fn flush(&self) {
-		if !self.initialized || !self.dirty.get() {
+		if !self.initialized {
+			return;
+		}
+		self.sync_push();
+		if !self.dirty.get() {
 			return;
 		}
 		let data = self.data.borrow();

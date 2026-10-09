@@ -15,6 +15,7 @@ use crate::{audio_player::AudioPlayer, text_window::TextWindow, ui::navigation::
 
 mod appearance;
 mod audio;
+mod fork_sync;
 mod lifecycle;
 mod ocr;
 mod position;
@@ -22,6 +23,7 @@ mod reload;
 mod tabs;
 mod window;
 
+pub use fork_sync::configure_sync;
 use reload::{FileFingerprint, parse_settings, read_fingerprint};
 
 pub struct DocumentTab {
@@ -99,6 +101,8 @@ pub struct DocumentManager {
 	pub(super) config: Rc<Mutex<ConfigManager>>,
 	live_region_label: StaticText,
 	last_position_save: Cell<Option<Instant>>,
+	/// A move the throttle above held back, for the fork's sync to save when Paperback goes to the back.
+	position_unsaved: Cell<bool>,
 	last_sound_position: Cell<Option<i64>>,
 	last_audio_seek_position: Cell<Option<i64>>,
 	last_focus_in_text: Cell<bool>,
@@ -126,6 +130,7 @@ impl DocumentManager {
 			config,
 			live_region_label,
 			last_position_save: Cell::new(None),
+			position_unsaved: Cell::new(false),
 			last_sound_position: Cell::new(None),
 			last_audio_seek_position: Cell::new(None),
 			last_focus_in_text: Cell::new(true),

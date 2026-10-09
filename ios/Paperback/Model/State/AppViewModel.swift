@@ -55,7 +55,12 @@ final class AppViewModel {
 		reading.start()
 		NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)
 			.sink { [weak self] _ in
-				self?.configManager.flush()
+				self?.saveConfig()
+			}
+			.store(in: &cancellables)
+		NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)
+			.sink { [weak self] _ in
+				self?.takeSyncedPosition()
 			}
 			.store(in: &cancellables)
 		NotificationCenter.default.publisher(for: .pbMagicTap)
@@ -86,6 +91,7 @@ final class AppViewModel {
 		}
 		Task {
 			guard let local = try? await BooksFolder.download(url), book == nil else { return }
+			await fetchSyncFiles()
 			openBook(url: local)
 			if book == nil { UserDefaults.standard.removeObject(forKey: Self.openBookKey) }
 		}
@@ -104,6 +110,7 @@ final class AppViewModel {
 				forcedExtension: "",
 				renderTablesInline: false
 			)
+			_ = configManager.syncOpenFfi(path: path, session: session)
 			let title = session.title().isEmpty ? url.deletingPathExtension().lastPathComponent : session.title()
 			let opened = OpenBook(title: title, url: url, currentPosition: configManager.getDocumentPosition(path: path), session: session)
 			book = opened
@@ -125,10 +132,65 @@ final class AppViewModel {
 		reading.onRefocus = nil
 		reading.cancelSleepTimer()
 		reading.activeSearchQuery = nil
-		configManager.flush()
+		saveConfig()
 		UserDefaults.standard.removeObject(forKey: Self.openBookKey)
 		book = nil
 		reading.updateNowPlaying()
+	}
+
+	// MARK: Sync
+
+	@ObservationIgnored private var syncFolder: URL?
+	@ObservationIgnored private var pendingSave: Task<Void, Never>?
+
+	/// The sync folder inside the books folder, set up with the engine the first time it is asked for and again whenever
+	/// the books folder is chosen anew. Nil until there is a books folder.
+	private func currentSyncFolder() -> URL? {
+		guard let books = booksFolder.folderURL else { return nil }
+		let folder = SyncFolder.url(in: books)
+		if folder != syncFolder {
+			configManager.syncConfigureFfi(folder: folder.path(percentEncoded: false), device: SyncFolder.device)
+			syncFolder = folder
+		}
+		return folder
+	}
+
+	/// Brings the Mac's sync file down from iCloud, before a book opens so it opens where it was last read on either.
+	func fetchSyncFiles() async {
+		guard let folder = currentSyncFolder() else { return }
+		await SyncFolder.fetch(folder)
+	}
+
+	/// Writes the config, and with it this device's sync file.
+	func saveConfig() {
+		pendingSave?.cancel()
+		guard let folder = currentSyncFolder() else {
+			configManager.flush()
+			return
+		}
+		SyncFolder.coordinate(in: folder) { configManager.flush() }
+	}
+
+	/// Saves once the reader has stayed on one paragraph a few seconds, so the other device has the place even if this
+	/// one never goes to the background.
+	private func saveSoon() {
+		pendingSave?.cancel()
+		pendingSave = Task { [weak self] in
+			try? await Task.sleep(for: .seconds(5))
+			guard !Task.isCancelled else { return }
+			self?.saveConfig()
+		}
+	}
+
+	/// Coming back to the front after reading on the Mac moves the open book to where the Mac left it, as a jump, so the
+	/// scrub returns to where this phone was. Never while the app is in front: that would move the reader mid-page.
+	private func takeSyncedPosition() {
+		Task {
+			await fetchSyncFiles()
+			let moves = configManager.syncPullFfi()
+			guard let bookPath, let move = moves.first(where: { $0.path == bookPath }) else { return }
+			reading.goToPosition(move.position)
+		}
 	}
 
 	// MARK: Bookmarks and where the reader is
@@ -149,20 +211,20 @@ final class AppViewModel {
 		let position = reading.position
 		let before = bookmarks().count
 		configManager.addBookmarkFfi(path: bookPath, start: position, end: position, note: automaticLabel(at: position))
-		configManager.flush()
+		saveConfig()
 		return bookmarks().count > before
 	}
 
 	func renameBookmark(_ bookmark: BookmarkFfi, to name: String) {
 		guard let bookPath else { return }
 		configManager.updateBookmarkNoteFfi(path: bookPath, start: bookmark.start, end: bookmark.end, note: name.trimmingCharacters(in: .whitespaces))
-		configManager.flush()
+		saveConfig()
 	}
 
 	func deleteBookmark(_ bookmark: BookmarkFfi) {
 		guard let bookPath else { return }
 		configManager.removeBookmarkFfi(path: bookPath, start: bookmark.start, end: bookmark.end)
-		configManager.flush()
+		saveConfig()
 	}
 
 	/// A bookmark's name, or, for one made elsewhere without a note, the label it would have been given here.
@@ -191,6 +253,7 @@ final class AppViewModel {
 		book?.currentPosition = position
 		if let path = book?.url.path(percentEncoded: false) {
 			configManager.setDocumentPosition(path: path, position: position)
+			saveSoon()
 		}
 	}
 }

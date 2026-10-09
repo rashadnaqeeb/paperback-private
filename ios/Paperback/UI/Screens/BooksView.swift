@@ -105,7 +105,9 @@ struct BooksView: View {
 		Task {
 			defer { downloading = nil }
 			do {
-				viewModel.openBook(url: try await BooksFolder.download(book))
+				let local = try await BooksFolder.download(book)
+				await viewModel.fetchSyncFiles()
+				viewModel.openBook(url: local)
 			} catch {
 				viewModel.debugMessage = "Error downloading '\(book.lastPathComponent)':\n\(error)"
 			}

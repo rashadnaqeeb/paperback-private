@@ -40,6 +40,7 @@ impl PaperbackApp {
 		migrate_if_needed();
 		let mut config = ConfigManager::new();
 		let _ = config.initialize(config_toml_path());
+		super::document_manager::configure_sync(&config);
 		{
 			let mut translations = TranslationManager::instance().lock().unwrap();
 			translations.initialize();

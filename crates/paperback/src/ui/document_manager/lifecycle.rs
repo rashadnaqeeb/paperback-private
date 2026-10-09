@@ -154,6 +154,7 @@ impl DocumentManager {
 		panel.set_sizer(sizer, true);
 		let path_str = path.to_string_lossy();
 		let doc_len = session.document_len();
+		config.sync_open(&path_str, session.handle().document());
 		let saved_pos = config.get_validated_document_position(&path_str, doc_len);
 		let initial_pos = if saved_pos >= 0 { saved_pos } else { 0 };
 		let window = load_window_into_ctrl(text_ctrl, &session, initial_pos, doc_len);
@@ -315,6 +316,7 @@ impl DocumentManager {
 		if let Some(last_save) = self.last_position_save.get()
 			&& now.duration_since(last_save).as_secs() < POSITION_SAVE_INTERVAL_SECS
 		{
+			self.position_unsaved.set(true);
 			return;
 		}
 		if let Some(tab) = self.active_tab()
@@ -328,6 +330,7 @@ impl DocumentManager {
 			config.flush();
 		}
 		self.last_position_save.set(Some(now));
+		self.position_unsaved.set(false);
 	}
 }
 

@@ -3,6 +3,7 @@ use std::{collections::HashSet, sync::Mutex};
 use crate::{config::ConfigManager, parser::ParserRegistry};
 
 mod bookmarks;
+mod fork_sync;
 
 /// Thread-safe wrapper around `ConfigManager` for `UniFFI` exposure.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
