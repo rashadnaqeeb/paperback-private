@@ -8,7 +8,7 @@ struct BookMenuSheet: View {
 
 	var body: some View {
 		TabView {
-			tab { TocView() }
+			tab { TocView(focusesCurrentEntry: false) }
 				// TRANSLATORS: Tab of the in-book menu holding the table of contents
 				.tabItem { Label(t("Contents"), systemImage: "list.bullet") }
 			tab { BookmarksView() }

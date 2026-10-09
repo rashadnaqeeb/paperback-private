@@ -34,10 +34,10 @@ final class BookView: UIScrollView {
 
 	var onFocusChange: ((Int) -> Void)?
 	var onActivate: (() -> Void)?
-	var onEscape: (() -> Bool)?
+	var onEscape: (() -> Void)?
 	/// A link to follow, as its unit and its index among the unit's links.
 	var onFollowLink: ((Int, Int) -> Void)?
-	/// A rotor jump the scrub should be able to undo, with the unit it left.
+	/// A rotor move, with the unit it left, which the temporary bookmark keeps.
 	var onRotorJump: ((Int) -> Void)?
 	/// A three-finger flick, forward or back, reporting whether there was a page to go to.
 	var onPageScroll: ((Bool) -> Bool)?
@@ -403,10 +403,9 @@ final class BookView: UIScrollView {
 		}
 	}
 
-	/// The two-finger scrub jumps back. It is taken even with nothing to go back to: passed on, it would reach the
-	/// navigation stack and leave the book.
+	/// The two-finger scrub leaves the book.
 	override func accessibilityPerformEscape() -> Bool {
-		_ = onEscape?()
+		onEscape?()
 		return true
 	}
 
@@ -452,29 +451,25 @@ final class BookView: UIScrollView {
 			if !model.linkStops.isEmpty { present.append(linksRotor) }
 			if !model.tableUnits.isEmpty { present.append(tablesRotor) }
 			if !model.sectionUnits.isEmpty { present.append(sectionsRotor) }
-			if !model.imageUnits.isEmpty { present.append(imagesRotor) }
 			if !bookmarkPositions().isEmpty { present.append(bookmarksRotor) }
 			return present
 		}
 		set {}
 	}
 
-	private lazy var headingsRotor = unitRotor(systemType: .heading, isJump: true) { view, from, forward in
+	private lazy var headingsRotor = unitRotor(systemType: .heading) { view, from, forward in
 		BookModel.stop(in: view.model.headingUnits, from: from, forward: forward)
 	}
 	private lazy var linksRotor = linkRotor()
-	private lazy var tablesRotor = unitRotor(systemType: .table, isJump: false) { view, from, forward in
+	private lazy var tablesRotor = unitRotor(systemType: .table) { view, from, forward in
 		view.structureStop(view.model.tableUnits, from: from, forward: forward)
 	}
 	// TRANSLATORS: Name of the VoiceOver rotor setting that moves between the sections of a book's table of contents
-	private lazy var sectionsRotor = unitRotor(name: t("Sections"), isJump: true) { view, from, forward in
+	private lazy var sectionsRotor = unitRotor(name: t("Sections")) { view, from, forward in
 		BookModel.stop(in: view.model.sectionUnits, from: from, forward: forward)
 	}
-	private lazy var imagesRotor = unitRotor(systemType: .image, isJump: false) { view, from, forward in
-		BookModel.stop(in: view.model.imageUnits, from: from, forward: forward)
-	}
 	// TRANSLATORS: Name of the VoiceOver rotor setting that moves between the reader's bookmarks in a book
-	private lazy var bookmarksRotor = unitRotor(name: t("Bookmarks"), isJump: true) { view, from, forward in
+	private lazy var bookmarksRotor = unitRotor(name: t("Bookmarks")) { view, from, forward in
 		BookModel.stop(in: Set(view.bookmarkPositions().map(view.model.unit(forPosition:))).sorted(), from: from, forward: forward)
 	}
 
@@ -489,13 +484,14 @@ final class BookView: UIScrollView {
 		(predicate.currentItem.targetElement as? BookElement)?.unit ?? focusedUnit
 	}
 
-	/// A rotor moving between units, named for a custom rotor or typed for one of VoiceOver's own.
-	private func unitRotor(name: String? = nil, systemType: UIAccessibilityCustomRotor.SystemRotorType = .none, isJump: Bool, next: @escaping (BookView, Int, Bool) -> Int?) -> UIAccessibilityCustomRotor {
+	/// A rotor moving between units, named for a custom rotor or typed for one of VoiceOver's own. Every move it makes
+	/// is a jump, reported with where it left from.
+	private func unitRotor(name: String? = nil, systemType: UIAccessibilityCustomRotor.SystemRotorType = .none, next: @escaping (BookView, Int, Bool) -> Int?) -> UIAccessibilityCustomRotor {
 		let search: UIAccessibilityCustomRotor.Search = { [weak self] predicate in
 			guard let self else { return nil }
 			let from = origin(of: predicate)
 			guard let target = next(self, from, predicate.searchDirection == .next), let element = focusTarget(forUnit: target) else { return nil }
-			if isJump { onRotorJump?(from) }
+			onRotorJump?(from)
 			return UIAccessibilityCustomRotorItemResult(targetElement: element, targetRange: nil)
 		}
 		if let name { return UIAccessibilityCustomRotor(name: name, itemSearch: search) }
@@ -516,6 +512,7 @@ final class BookView: UIScrollView {
 				? stops.first { $0.unit > unit || ($0.unit == unit && $0.link > link) }
 				: stops.last { $0.unit < unit || ($0.unit == unit && $0.link < link && link >= 0) }
 			guard let found, let element = element(forLink: found.link, inUnit: found.unit) else { return nil }
+			if found.unit != unit { onRotorJump?(unit) }
 			return UIAccessibilityCustomRotorItemResult(targetElement: element, targetRange: nil)
 		}
 	}

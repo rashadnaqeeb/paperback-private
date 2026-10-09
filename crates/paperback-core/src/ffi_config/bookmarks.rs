@@ -39,6 +39,15 @@ impl ConfigManagerFfi {
 	pub fn update_bookmark_note_ffi(&self, path: String, start: i64, end: i64, note: String) {
 		self.inner.lock().unwrap().update_bookmark_note(&path, start, end, &note);
 	}
+
+	/// Where the reader was before a jump, kept in the desktop's temporary bookmark: `-1` when there is none.
+	pub fn get_temporary_bookmark_ffi(&self, path: String) -> i64 {
+		self.inner.lock().unwrap().get_temporary_bookmark(&path).unwrap_or(-1)
+	}
+
+	pub fn set_temporary_bookmark_ffi(&self, path: String, position: i64) {
+		self.inner.lock().unwrap().set_temporary_bookmark(&path, Some(position));
+	}
 }
 
 #[cfg(test)]
@@ -60,6 +69,9 @@ mod tests {
 		assert_eq!(config.get_bookmarks_ffi(book.clone())[0].note, "Renamed");
 		config.remove_bookmark_ffi(book.clone(), 50, 60);
 		assert_eq!(config.get_bookmarks_ffi(book).len(), 1);
+		assert_eq!(config.get_temporary_bookmark_ffi("/books/book.epub".to_string()), -1);
+		config.set_temporary_bookmark_ffi("/books/book.epub".to_string(), 42);
+		assert_eq!(config.get_temporary_bookmark_ffi("/books/book.epub".to_string()), 42);
 		std::fs::remove_dir_all(dir).unwrap();
 	}
 }

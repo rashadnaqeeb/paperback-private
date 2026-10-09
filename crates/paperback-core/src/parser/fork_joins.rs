@@ -5,6 +5,11 @@
 //! all look the same line by line. What tells a cut apart is what a printed page does to a paragraph. The paragraph's
 //! first printed line is a full line, so the piece before a cut is never a stub; and the last piece finishes the
 //! paragraph, so it ends a sentence. Runs of short lines broken at commas are verse, which no page break produces.
+//!
+//! A word the printed line split keeps no hyphen once joined ("cer-tainty" reads "certainty") when the book writes it
+//! whole elsewhere and never hyphenated, so compounds like "well-known" keep theirs.
+
+use std::collections::HashSet;
 
 use crate::{
 	document::{Document, Edit, MarkerType, TocItem},
@@ -68,6 +73,7 @@ fn find_joins(doc: &Document) -> Vec<Edit> {
 	let lines = lines(doc);
 	let joinable: Vec<bool> = lines.windows(2).map(|pair| is_cut(&pair[0], &pair[1])).collect();
 	let mut edits = Vec::new();
+	let mut spellings = None;
 	let mut first = 0;
 	while first < joinable.len() {
 		if !joinable[first] {
@@ -79,7 +85,13 @@ fn find_joins(doc: &Document) -> Vec<Edit> {
 			last += 1;
 		}
 		if is_paragraph(&lines[first..=last]) {
-			for line in &lines[first..last] {
+			for (line, next) in lines[first..last].iter().zip(&lines[first + 1..=last]) {
+				if let Some((before, after)) = split_word(line.text, next.text)
+					&& spellings.get_or_insert_with(|| Spellings::new(&doc.buffer.content)).is_one_word(before, after)
+				{
+					// Its own edit beside the newline's, so no marker sits inside either and is lost.
+					edits.push(Edit { start: line.newline - 1, end: line.newline, text: String::new() });
+				}
 				let text = if line.text.ends_with('-') || line.text.ends_with(char::is_whitespace) { "" } else { " " };
 				edits.push(Edit { start: line.newline, end: line.newline + 1, text: text.to_string() });
 			}
@@ -87,6 +99,46 @@ fn find_joins(doc: &Document) -> Vec<Edit> {
 		first = last;
 	}
 	edits
+}
+
+/// The two halves of a word a printed line split with a hyphen: the letters before the hyphen ending `line`, and those
+/// starting `next`.
+fn split_word<'a>(line: &'a str, next: &'a str) -> Option<(&'a str, &'a str)> {
+	let stem = line.strip_suffix('-')?;
+	let start = stem.char_indices().rev().take_while(|(_, ch)| ch.is_alphabetic()).last()?.0;
+	let next = next.trim_start();
+	let end = next.char_indices().find(|(_, ch)| !ch.is_alphabetic()).map_or(next.len(), |(index, _)| index);
+	(end > 0).then(|| (&stem[start..], &next[..end]))
+}
+
+/// The book's words as it spells them, written whole and written with a hyphen.
+struct Spellings {
+	whole: HashSet<String>,
+	hyphenated: HashSet<String>,
+}
+
+impl Spellings {
+	fn new(content: &str) -> Self {
+		let mut spellings = Self { whole: HashSet::new(), hyphenated: HashSet::new() };
+		for word in content.split(|ch: char| !ch.is_alphabetic() && ch != '-') {
+			let word = word.trim_matches('-');
+			if word.is_empty() {
+				continue;
+			}
+			let word = word.to_lowercase();
+			if word.contains('-') {
+				spellings.hyphenated.insert(word);
+			} else {
+				spellings.whole.insert(word);
+			}
+		}
+		spellings
+	}
+
+	fn is_one_word(&self, before: &str, after: &str) -> bool {
+		self.whole.contains(&format!("{before}{after}").to_lowercase())
+			&& !self.hyphenated.contains(&format!("{before}-{after}").to_lowercase())
+	}
 }
 
 fn lines(doc: &Document) -> Vec<Line<'_>> {
@@ -235,6 +287,32 @@ mod tests {
 	fn a_word_hyphenated_across_the_cut_joins_without_a_space() {
 		let first = "He had been around the world sixty-five times, and every time well-";
 		assert_eq!(joined(&format!("{first}\nknown faces met him.\n")), format!("{first}known faces met him.\n"));
+	}
+
+	#[test]
+	fn a_word_split_by_the_printed_line_loses_its_hyphen_when_the_book_writes_it_whole() {
+		let first = "Nobody in the village could say with any confidence or any cer-";
+		let book = format!("{first}\ntainty where the river went.\nIts course was known with certainty only later.\n");
+		let expected = "Nobody in the village could say with any confidence or any certainty where the river went.";
+		assert!(joined(&book).starts_with(expected));
+	}
+
+	#[test]
+	fn a_compound_the_book_writes_hyphenated_keeps_its_hyphen() {
+		let first = "Nobody in the village could say with any confidence that the well-";
+		let book = format!("{first}\nknown river ran dry.\nIt was a well-known river, and wellknown is a typo.\n");
+		assert!(joined(&book).starts_with(&format!("{first}known river ran dry.")));
+	}
+
+	#[test]
+	fn a_page_break_at_the_cut_survives_a_dropped_hyphen() {
+		let first = "Nobody in the village could say with any confidence or any cer-";
+		let mut doc = doc(&format!("{first}\ntainty where the river went.\nWith certainty.\n"));
+		let newline = first.chars().count();
+		doc.buffer.add_marker(Marker::new(MarkerType::PageBreak, newline + 1));
+		join_cut_paragraphs(&mut doc);
+		let page = doc.buffer.markers.iter().find(|marker| marker.mtype == MarkerType::PageBreak).expect("page kept");
+		assert_eq!(&doc.buffer.content[page.position..page.position + 6], "tainty");
 	}
 
 	#[test]

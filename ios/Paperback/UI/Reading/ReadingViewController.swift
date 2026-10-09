@@ -7,8 +7,8 @@ struct ReadingMenuItem {
 }
 
 /// Hosts the reading surface: lands VoiceOver on the saved paragraph, saves the position as focus moves, follows
-/// links, keeps the jump-back stack the two-finger scrub walks, opens the menu on double-tap, and turns pages by swipe
-/// for reading without VoiceOver.
+/// links, reports where each jump left from, leaves the book on the two-finger scrub, opens the menu on double-tap, and
+/// turns pages by swipe for reading without VoiceOver.
 @MainActor
 final class ReadingViewController: UIViewController, UIScrollViewAccessibilityDelegate {
 	private let bookView: BookView
@@ -18,16 +18,16 @@ final class ReadingViewController: UIViewController, UIScrollViewAccessibilityDe
 	/// The book position of the unit the reader is on, whenever it changes.
 	var onPositionChange: ((Int64) -> Void)?
 	var onMenu: (() -> Void)?
+	/// Where the reader was when a jump (a rotor move, a link, a pick from the menu) took them away.
+	var onLeave: ((Int64) -> Void)?
+	/// The two-finger scrub.
+	var onExit: (() -> Void)?
 	var bookmarkPositions: () -> [Int64] = { [] } {
 		didSet { bookView.bookmarkPositions = bookmarkPositions }
 	}
 
 	/// The printed page the reader last turned to, and the unit it landed on, since a page can start inside a paragraph.
 	private var turnedTo: (unit: Int, page: Int)?
-
-	/// Where each jump the app made left from, newest last, so the scrub can go back.
-	private var jumpBack: [Int] = []
-	private let jumpBackLimit = 100
 
 	/// VoiceOver focuses the first element by itself when the screen appears, before the restore lands. Until focus
 	/// reaches the restore target, those stray focus events must not be saved, or they overwrite the real position with
@@ -57,13 +57,14 @@ final class ReadingViewController: UIViewController, UIScrollViewAccessibilityDe
 			self?.onMenu?()
 		}
 		bookView.onEscape = { [weak self] in
-			self?.goBack() ?? false
+			self?.onExit?()
 		}
 		bookView.onFollowLink = { [weak self] unit, link in
 			self?.followLink(link, inUnit: unit)
 		}
 		bookView.onRotorJump = { [weak self] from in
-			self?.pushJumpBack(from)
+			guard let self else { return }
+			onLeave?(model.position(ofUnit: from))
 		}
 		bookView.onPageScroll = { [weak self] forward in
 			self?.turnPage(forward: forward) ?? false
@@ -128,7 +129,7 @@ final class ReadingViewController: UIViewController, UIScrollViewAccessibilityDe
 	/// paragraph is not sent back to it as the paragraph's start.
 	private var jumpedPosition: Int64?
 
-	/// Moves to a position the app chose (a table of contents entry, a search result), remembered for the scrub.
+	/// Moves to a position the app chose (a table of contents entry, a search result).
 	func jump(toPosition position: Int64) {
 		jumpedPosition = position
 		jump(to: model.unit(forPosition: position))
@@ -136,20 +137,8 @@ final class ReadingViewController: UIViewController, UIScrollViewAccessibilityDe
 	}
 
 	func jump(to unit: Int) {
-		pushJumpBack(currentUnit)
+		onLeave?(model.position(ofUnit: currentUnit))
 		move(to: unit)
-	}
-
-	private func pushJumpBack(_ unit: Int) {
-		if jumpBack.last != unit { jumpBack.append(unit) }
-		if jumpBack.count > jumpBackLimit { jumpBack.removeFirst() }
-	}
-
-	/// Returns from the most recent jump, reporting whether there was one to return from.
-	private func goBack() -> Bool {
-		guard let unit = jumpBack.popLast() else { return false }
-		move(to: unit)
-		return true
 	}
 
 	/// Moves to a unit with VoiceOver focus following when the reading screen is showing.

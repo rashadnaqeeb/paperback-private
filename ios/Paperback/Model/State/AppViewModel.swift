@@ -141,6 +141,7 @@ final class AppViewModel {
 		reading.onRefocus = nil
 		reading.cancelSleepTimer()
 		reading.activeSearchQuery = nil
+		lastJump = nil
 		saveConfig()
 		UserDefaults.standard.removeObject(forKey: Self.openBookKey)
 		book = nil
@@ -197,6 +198,27 @@ final class AppViewModel {
 	// MARK: Bookmarks and where the reader is
 
 	private var bookPath: String? { book?.url.path(percentEncoded: false) }
+
+	/// When the reader last jumped, for keeping the temporary bookmark through a run of jumps.
+	@ObservationIgnored private var lastJump: Date?
+
+	/// A jump keeps where the reader was in the temporary bookmark, the one the desktop sets by hand, so the Bookmarks
+	/// rotor can go back there. Jumps that follow within five minutes of the last leave it alone: browsing by rotor
+	/// keeps the place the browsing started from.
+	func noteJump(from position: Int64) {
+		guard let bookPath else { return }
+		let now = Date()
+		defer { lastJump = now }
+		if let lastJump, now.timeIntervalSince(lastJump) < 5 * 60 { return }
+		configManager.setTemporaryBookmarkFfi(path: bookPath, position: position)
+	}
+
+	/// What the Bookmarks rotor stops at: the bookmarks, and the temporary bookmark.
+	func rotorBookmarkPositions() -> [Int64] {
+		guard let bookPath else { return [] }
+		let temporary = configManager.getTemporaryBookmarkFfi(path: bookPath)
+		return bookmarks().map(\.start) + (temporary >= 0 ? [temporary] : [])
+	}
 
 	/// The open book's bookmarks in position order.
 	func bookmarks() -> [BookmarkFfi] {

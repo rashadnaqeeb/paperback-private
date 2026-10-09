@@ -2,6 +2,9 @@ import SwiftUI
 
 struct TocView: View {
 	@Environment(AppViewModel.self) private var viewModel
+	/// Whether VoiceOver moves to the current chapter on arrival. Not in the in-book menu, where the menu opens on Exit
+	/// Book and the contents are only its first tab.
+	var focusesCurrentEntry = true
 
 	var body: some View {
 		Group {
@@ -10,7 +13,7 @@ struct TocView: View {
 				if entries.isEmpty {
 					emptyView
 				} else {
-					TocTree(entries: entries, activeIndex: activeIndex(in: entries))
+					TocTree(entries: entries, activeIndex: activeIndex(in: entries), focusesActiveEntry: focusesCurrentEntry)
 				}
 			} else {
 				emptyView
@@ -34,13 +37,14 @@ struct TocView: View {
 			// TRANSLATORS: Description shown below the "No Table of Contents" title
 			description: Text(t("This document has no table of contents."))
 		)
-		.sheetAccessibilityFocus(title: t("Contents"))
+		.sheetAccessibilityFocus(title: t("Contents"), enabled: focusesCurrentEntry)
 	}
 }
 
 private struct TocTree: View {
 	let entries: [TocEntry]
 	let activeIndex: Int
+	let focusesActiveEntry: Bool
 	@Environment(AppViewModel.self) private var viewModel
 	@Environment(\.dismiss) private var dismiss
 	@State private var expanded: Set<Int>
@@ -48,9 +52,10 @@ private struct TocTree: View {
 	private let chevronWidth: CGFloat = 24
 	private let indentPerLevel: CGFloat = 16
 
-	init(entries: [TocEntry], activeIndex: Int) {
+	init(entries: [TocEntry], activeIndex: Int, focusesActiveEntry: Bool) {
 		self.entries = entries
 		self.activeIndex = activeIndex
+		self.focusesActiveEntry = focusesActiveEntry
 		_expanded = State(initialValue: ancestors(of: activeIndex, in: entries))
 	}
 
@@ -61,6 +66,7 @@ private struct TocTree: View {
 			}
 			.onAppear {
 				proxy.scrollTo(activeIndex, anchor: .center)
+				guard focusesActiveEntry else { return }
 				// Same delay as sheetAccessibilityFocus, so the push has settled before VoiceOver moves.
 				DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
 					focusedIndex = activeIndex

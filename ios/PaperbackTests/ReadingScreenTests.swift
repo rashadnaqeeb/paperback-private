@@ -270,16 +270,30 @@ final class BookViewTests: XCTestCase {
 		XCTAssertNil(search(links, from: second))
 	}
 
+	/// Every rotor move counts as a jump for the temporary bookmark, but stepping between links of one paragraph does not
+	/// leave the place being read.
+	func testTheLinksRotorReportsAJumpOnlyWhenItLeavesTheParagraph() {
+		let view = structuredView()
+		var jumpedFrom: [Int] = []
+		view.onRotorJump = { jumpedFrom.append($0) }
+		let links = rotor(view, .link)
+		let first = search(links, from: view.element(forUnit: 0))
+		_ = search(links, from: first)
+		XCTAssertEqual(jumpedFrom, [0])
+	}
+
 	func testALinkSitsAtItsParagraphsPlaceSoAFlickMovesOn() {
 		let view = structuredView()
 		let link = view.element(forLink: 1, inUnit: 1)
 		XCTAssertEqual(view.index(ofAccessibilityElement: link as Any), 1)
 	}
 
-	func testTheScrubIsTakenEvenWithNothingToGoBackTo() {
+	func testTheScrubLeavesTheBook() {
 		let view = structuredView()
-		view.onEscape = { false }
+		var left = false
+		view.onEscape = { left = true }
 		XCTAssertTrue(view.accessibilityPerformEscape())
+		XCTAssertTrue(left)
 	}
 
 	func testAListItemKeepsItsListWhenTheViewLetsTheListGo() {
@@ -295,16 +309,15 @@ final class BookViewTests: XCTestCase {
 		XCTAssertTrue(item?.accessibilityContainer is ListElement)
 	}
 
-	func testTheImagesRotorFindsTheImage() {
+	func testThereIsNoImagesRotorButAnImageStillSpeaksItsDescription() {
 		let view = structuredView()
-		let image = search(rotor(view, .image), from: view.element(forUnit: 0)) as? ParagraphElement
-		XCTAssertEqual(image?.unit, 3)
-		XCTAssertEqual(image?.accessibilityLabel, "Map")
+		XCTAssertNil(rotor(view, .image))
+		XCTAssertEqual((view.element(forUnit: 3) as? ParagraphElement)?.accessibilityLabel, "Map")
 	}
 
 	func testOnlyTheRotorsTheBookHasSomethingForAreOffered() {
 		let rotors = structuredView().accessibilityCustomRotors ?? []
-		XCTAssertEqual(rotors.map(\.systemRotorType), [.heading, .link, .image])
+		XCTAssertEqual(rotors.map(\.systemRotorType), [.heading, .link])
 		XCTAssertEqual(view(paragraphs: 5).accessibilityCustomRotors?.count, 0)
 	}
 
