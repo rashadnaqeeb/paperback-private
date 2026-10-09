@@ -1,25 +1,25 @@
 //! The fork's sync of reading position and bookmarks between devices (its DESIGN.md "Sync").
 //!
-//! Every device writes one file of its own into a shared folder, `<device>.toml`, and reads the
-//! others'. A file holds an entry per book, under the content-hash key the config already files
-//! books by, so the same book matches on every device whatever its path. Position and bookmarks
-//! carry their own save times and the newest of each wins, so reading on one device never undoes
-//! a bookmark added on another.
+//! Every device keeps one value of its own in a [`SyncStore`], Apple's iCloud key-value store in
+//! both apps, under `device.<name>`, and reads the others'. A value is TOML holding an entry per
+//! book, under the content-hash key the config already files books by, so the same book matches
+//! on every device whatever its path. Position and bookmarks carry their own save times and the
+//! newest of each wins, so reading on one device never undoes a bookmark added on another.
 //!
-//! Positions in the files are in shared units rather than the local config's display units. The
+//! Positions in the store are in shared units rather than the local config's display units. The
 //! Mac counts UTF-16 code units where the iPhone counts characters, and the Mac renders tables as
 //! their text where the iPhone leaves a one-line placeholder, so the same place has different
 //! offsets on the two. Shared units count characters with every table as one, which both buffers
 //! agree on. A book whose two buffers still differ in length (a different engine version, say)
 //! has its positions scaled, which lands near the right place rather than drifting from the start.
 //!
-//! The device file is written from [`ConfigManager::flush`], so every save the apps already make
-//! carries to the other device without either app knowing about sync beyond opening a book.
+//! The device's value is written from [`ConfigManager::flush`], so every save the apps already
+//! make carries to the other device without either app knowing about sync beyond opening a book.
 
 use std::{
 	collections::{BTreeMap, HashMap},
-	fs,
-	path::{Path, PathBuf},
+	path::Path,
+	sync::Arc,
 	time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -32,6 +32,17 @@ use crate::{
 	util::text::ch_width,
 };
 
+/// Where the devices' sync state is kept, given by the app. Both apps give Apple's iCloud key-value
+/// store, which carries a value set on one device to the others on the same account.
+#[cfg_attr(feature = "uniffi", uniffi::export(with_foreign))]
+pub trait SyncStore: Send + Sync {
+	fn get(&self, key: String) -> Option<String>;
+	fn set(&self, key: String, value: String);
+	fn keys(&self) -> Vec<String>;
+}
+
+const DEVICE_KEY_PREFIX: &str = "device.";
+
 /// The save time of a place a device had before sync began. Every such place counts as equally old,
 /// so each device keeps its own until the reader moves on one of them, and any of them wins over a
 /// device that has nothing for the book.
@@ -39,12 +50,11 @@ const BEFORE_SYNC: u64 = 1;
 
 #[derive(Default)]
 pub(super) struct SyncState {
-	folder: Option<PathBuf>,
+	store: Option<Arc<dyn SyncStore>>,
 	device: String,
 	own: SyncFile,
-	/// Whether `own` holds what this device's file says. Until it does (the file is still in iCloud,
-	/// or will not read) the file is never written, since that would replace every book in it with
-	/// this run's.
+	/// Whether `own` holds what this device's stored value says. Until it does (the value will not
+	/// read) it is never written, since that would replace every book in it with this run's.
 	own_loaded: bool,
 	/// Books opened this run, by key. Only these can be converted between local and shared units,
 	/// which needs the parsed text.
@@ -190,34 +200,37 @@ impl SharedUnits {
 }
 
 impl ConfigManager {
-	/// Starts syncing through `folder` as `device`, which names this device's file there. False when
-	/// the folder cannot be used.
-	pub fn sync_configure(&self, folder: &Path, device: &str) -> bool {
-		// An empty folder would put the files wherever the app happens to be running.
-		if !self.initialized || folder.as_os_str().is_empty() || fs::create_dir_all(folder).is_err() {
-			return false;
+	/// Starts syncing through `store` as `device`, which names this device's value there.
+	pub fn sync_start(&self, device: &str, store: Arc<dyn SyncStore>) {
+		if !self.initialized {
+			return;
 		}
 		{
 			let mut sync = self.sync.borrow_mut();
-			sync.folder = Some(folder.to_path_buf());
+			sync.store = Some(store);
 			sync.device = device.to_string();
 			sync.own = SyncFile::default();
 			sync.own_loaded = false;
 			sync.dirty = false;
 		}
 		self.refresh_own();
-		true
+	}
+
+	/// Whether this device's sync entries hold the book at `path`.
+	pub fn sync_knows(&self, path: &str) -> bool {
+		let key = self.get_doc_key(path);
+		self.sync.borrow().own.books.contains_key(&key)
 	}
 
 	#[must_use]
 	pub fn sync_enabled(&self) -> bool {
-		self.sync.borrow().folder.is_some()
+		self.sync.borrow().store.is_some()
 	}
 
 	/// Takes the newest position and bookmarks for a book just parsed, before the app reads where
 	/// to open it. True when something from another device was taken.
 	pub fn sync_open(&self, path: &str, doc: &Document) -> bool {
-		if !self.initialized || self.sync.borrow().folder.is_none() || doc.audio.is_some() {
+		if !self.initialized || self.sync.borrow().store.is_none() || doc.audio.is_some() {
 			return false;
 		}
 		let key = self.get_doc_key(path);
@@ -253,7 +266,7 @@ impl ConfigManager {
 	/// Takes anything newer from other devices for the books open this run, for when the app comes
 	/// back to the front. Returns each book whose position moved, with where it moved to.
 	pub fn sync_pull(&self) -> Vec<(String, i64)> {
-		if !self.initialized || self.sync.borrow().folder.is_none() {
+		if !self.initialized || self.sync.borrow().store.is_none() {
 			return Vec::new();
 		}
 		self.refresh_own();
@@ -272,7 +285,7 @@ impl ConfigManager {
 	/// Records local changes to the open books in this device's entries and writes its file when
 	/// anything changed. Called from [`ConfigManager::flush`].
 	pub(super) fn sync_push(&self) {
-		if self.sync.borrow().folder.is_none() {
+		if self.sync.borrow().store.is_none() {
 			return;
 		}
 		self.refresh_own();
@@ -282,17 +295,13 @@ impl ConfigManager {
 		for key in keys {
 			self.record_local_changes(sync, &key);
 		}
-		let Some(folder) = sync.folder.as_ref() else { return };
+		let Some(store) = sync.store.as_ref() else { return };
 		if !sync.dirty || !sync.own_loaded {
 			return;
 		}
-		let Ok(text) = toml::to_string_pretty(&sync.own) else { return };
-		let target = folder.join(format!("{}.toml", sync.device));
-		// Written beside the file and renamed over it, so iCloud never uploads half a file.
-		let temporary = folder.join(format!(".{}.toml.tmp", sync.device));
-		if fs::write(&temporary, text).is_ok() && fs::rename(&temporary, &target).is_ok() {
-			sync.dirty = false;
-		}
+		let Ok(text) = toml::to_string(&sync.own) else { return };
+		store.set(format!("{DEVICE_KEY_PREFIX}{}", sync.device), text);
+		sync.dirty = false;
 	}
 
 	/// Stamps whatever differs between the local config and this device's entry for an open book
@@ -334,9 +343,8 @@ impl ConfigManager {
 		}
 	}
 
-	/// Reads this device's own file once it can be read: it may still be in iCloud when sync starts.
-	/// What this run did meanwhile is kept where it is newer, and books the local config has
-	/// nothing for take what the file says.
+	/// Reads this device's own stored value once it can be read. What this run did meanwhile is kept
+	/// where it is newer, and books the local config has nothing for take what the value says.
 	fn refresh_own(&self) {
 		let loaded = {
 			let mut guard = self.sync.borrow_mut();
@@ -344,16 +352,14 @@ impl ConfigManager {
 			if sync.own_loaded {
 				return;
 			}
-			let Some(folder) = sync.folder.as_ref() else { return };
-			let file = folder.join(format!("{}.toml", sync.device));
-			let stored = if file.exists() {
+			let Some(store) = sync.store.as_ref() else { return };
+			let stored = match store.get(format!("{DEVICE_KEY_PREFIX}{}", sync.device)) {
 				// Unreadable: left alone, and never overwritten, until it reads.
-				let Some(stored) = read_sync_file(&file) else { return };
-				stored
-			} else if folder.join(format!(".{}.toml.icloud", sync.device)).exists() {
-				return;
-			} else {
-				SyncFile::default()
+				Some(text) => match toml::from_str(&text) {
+					Ok(stored) => stored,
+					Err(_) => return,
+				},
+				None => SyncFile::default(),
 			};
 			for (key, stored) in stored.books {
 				let entry = sync.own.books.entry(key).or_insert_with(|| stored.clone());
@@ -463,24 +469,15 @@ impl ConfigManager {
 
 	fn read_other_devices(&self) -> Vec<SyncFile> {
 		let sync = self.sync.borrow();
-		let Some(folder) = sync.folder.as_ref() else { return Vec::new() };
-		let own = format!("{}.toml", sync.device);
-		let Ok(items) = fs::read_dir(folder) else { return Vec::new() };
-		items
-			.filter_map(Result::ok)
-			.map(|item| item.path())
-			.filter(|path| {
-				let name = path.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default();
-				// A leading dot is an iCloud placeholder or another device's file mid-write.
-				!name.starts_with('.') && path.extension().is_some_and(|extension| extension == "toml") && name != own
-			})
-			.filter_map(|path| read_sync_file(&path))
+		let Some(store) = sync.store.as_ref() else { return Vec::new() };
+		let own = format!("{DEVICE_KEY_PREFIX}{}", sync.device);
+		store
+			.keys()
+			.into_iter()
+			.filter(|key| key.starts_with(DEVICE_KEY_PREFIX) && *key != own)
+			.filter_map(|key| toml::from_str(&store.get(key)?).ok())
 			.collect()
 	}
-}
-
-fn read_sync_file(path: &Path) -> Option<SyncFile> {
-	toml::from_str(&fs::read_to_string(path).ok()?).ok()
 }
 
 fn now_ms() -> u64 {
@@ -508,9 +505,27 @@ mod tests {
 		doc
 	}
 
-	fn device(folder: &Path, name: &str) -> ConfigManager {
+	/// What the iCloud key-value store does for the apps, shared between the devices of a test.
+	#[derive(Default)]
+	struct MemoryStore(std::sync::Mutex<HashMap<String, String>>);
+
+	impl SyncStore for MemoryStore {
+		fn get(&self, key: String) -> Option<String> {
+			self.0.lock().unwrap().get(&key).cloned()
+		}
+
+		fn set(&self, key: String, value: String) {
+			self.0.lock().unwrap().insert(key, value);
+		}
+
+		fn keys(&self) -> Vec<String> {
+			self.0.lock().unwrap().keys().cloned().collect()
+		}
+	}
+
+	fn device(store: &Arc<MemoryStore>, name: &str) -> ConfigManager {
 		let config = ConfigManager::in_memory();
-		config.sync_configure(folder, name);
+		config.sync_start(name, store.clone());
 		config
 	}
 
@@ -569,10 +584,11 @@ mod tests {
 	#[test]
 	fn a_position_and_a_bookmark_cross_from_one_device_to_the_other_and_back() {
 		let folder = TempDir::new("sync-round-trip");
+		let store = Arc::new(MemoryStore::default());
 		let (a, b) = copies(&folder);
 		let book = doc("First paragraph.\nSecond paragraph.\nThird paragraph.\n", &[]);
-		let mac = device(folder.path(), "mac");
-		let phone = device(folder.path(), "iphone");
+		let mac = device(&store, "mac");
+		let phone = device(&store, "iphone");
 		mac.sync_open(&a, &book);
 		mac.set_document_position(&a, 17);
 		mac.add_bookmark(&a, 35, 35, "Third");
@@ -592,10 +608,11 @@ mod tests {
 	#[test]
 	fn taking_another_devices_state_does_not_send_it_back_as_new() {
 		let folder = TempDir::new("sync-no-echo");
+		let store = Arc::new(MemoryStore::default());
 		let (a, b) = copies(&folder);
 		let book = doc("One.\nTwo.\n", &[]);
-		let mac = device(folder.path(), "mac");
-		let phone = device(folder.path(), "iphone");
+		let mac = device(&store, "mac");
+		let phone = device(&store, "iphone");
 		mac.sync_open(&a, &book);
 		mac.set_document_position(&a, 5);
 		mac.flush();
@@ -612,10 +629,11 @@ mod tests {
 	#[test]
 	fn reading_on_one_device_keeps_a_bookmark_added_on_the_other() {
 		let folder = TempDir::new("sync-separate-times");
+		let store = Arc::new(MemoryStore::default());
 		let (a, b) = copies(&folder);
 		let book = doc("One.\nTwo.\nThree.\n", &[]);
-		let mac = device(folder.path(), "mac");
-		let phone = device(folder.path(), "iphone");
+		let mac = device(&store, "mac");
+		let phone = device(&store, "iphone");
 		mac.sync_open(&a, &book);
 		phone.sync_open(&b, &book);
 		mac.add_bookmark(&a, 5, 5, "");
@@ -634,16 +652,17 @@ mod tests {
 	#[test]
 	fn state_from_before_sync_gives_way_to_any_real_save() {
 		let folder = TempDir::new("sync-old-state");
+		let store = Arc::new(MemoryStore::default());
 		let (a, b) = copies(&folder);
 		let book = doc("One.\nTwo.\nThree.\n", &[]);
-		let mac = device(folder.path(), "mac");
+		let mac = device(&store, "mac");
 		mac.sync_open(&a, &book);
 		mac.set_document_position(&a, 5);
 		mac.flush();
 		tick();
 		let phone = ConfigManager::in_memory();
 		phone.set_document_position(&b, 10);
-		phone.sync_configure(folder.path(), "iphone");
+		phone.sync_start("iphone", store);
 		phone.sync_open(&b, &book);
 		assert_eq!(phone.get_document_position(&b), 5);
 	}
@@ -653,33 +672,35 @@ mod tests {
 	#[test]
 	fn places_from_before_sync_stay_put_but_fill_a_device_that_has_none() {
 		let folder = TempDir::new("sync-before-sync");
+		let store = Arc::new(MemoryStore::default());
 		let (a, b) = copies(&folder);
 		let c = folder.write_str("third/book.epub", "the book");
 		let book = doc("One.\nTwo.\nThree.\n", &[]);
 		let mac = ConfigManager::in_memory();
 		mac.set_document_position(&a, 5);
-		mac.sync_configure(folder.path(), "mac");
+		mac.sync_start("mac", store.clone());
 		mac.sync_open(&a, &book);
 		mac.flush();
 		let phone = ConfigManager::in_memory();
 		phone.set_document_position(&b, 10);
-		phone.sync_configure(folder.path(), "iphone");
+		phone.sync_start("iphone", store.clone());
 		phone.sync_open(&b, &book);
 		assert_eq!(phone.get_document_position(&b), 10);
-		let ipad = device(folder.path(), "ipad");
+		let ipad = device(&store, "ipad");
 		ipad.sync_open(&c, &book);
 		assert_eq!(ipad.get_document_position(&c), 5);
 	}
 
 	/// A reinstalled app, or one run with fresh settings, has nothing for the book; what its own
-	/// file remembers is taken back instead of the blank being sent out as a change.
+	/// stored value remembers is taken back instead of the blank being sent out as a change.
 	#[test]
-	fn fresh_settings_take_back_this_devices_file_instead_of_wiping_the_book() {
+	fn fresh_settings_take_back_this_devices_stored_value_instead_of_wiping_the_book() {
 		let folder = TempDir::new("sync-fresh-settings");
+		let store = Arc::new(MemoryStore::default());
 		let (a, b) = copies(&folder);
 		let book = doc("One.\nTwo.\nThree.\n", &[]);
-		let mac = device(folder.path(), "mac");
-		let phone = device(folder.path(), "iphone");
+		let mac = device(&store, "mac");
+		let phone = device(&store, "iphone");
 		mac.sync_open(&a, &book);
 		phone.sync_open(&b, &book);
 		phone.set_document_position(&b, 10);
@@ -687,7 +708,7 @@ mod tests {
 		phone.flush();
 		tick();
 		mac.sync_pull();
-		let reinstalled = device(folder.path(), "iphone");
+		let reinstalled = device(&store, "iphone");
 		reinstalled.sync_open(&b, &book);
 		reinstalled.flush();
 		assert_eq!(reinstalled.get_document_position(&b), 10);
@@ -701,9 +722,10 @@ mod tests {
 	#[test]
 	fn a_device_whose_clock_is_behind_still_gets_its_moves_across() {
 		let folder = TempDir::new("sync-clock");
+		let store = Arc::new(MemoryStore::default());
 		let (a, b) = copies(&folder);
 		let book = doc("One.\nTwo.\nThree.\n", &[]);
-		let mac = device(folder.path(), "mac");
+		let mac = device(&store, "mac");
 		mac.sync_open(&a, &book);
 		mac.set_document_position(&a, 5);
 		mac.flush();
@@ -711,34 +733,36 @@ mod tests {
 		mac.sync.borrow_mut().own.books.values_mut().for_each(|entry| entry.position_saved += 60_000);
 		mac.sync.borrow_mut().dirty = true;
 		mac.flush();
-		let phone = device(folder.path(), "iphone");
+		let phone = device(&store, "iphone");
 		phone.sync_open(&b, &book);
 		phone.set_document_position(&b, 10);
 		phone.flush();
 		assert_eq!(mac.sync_pull(), vec![(a, 10)]);
 	}
 
-	/// The file may still be in iCloud, or damaged; writing over it would leave only this run's books.
+	/// A damaged value: writing over it would leave only this run's books.
 	#[test]
-	fn an_unreadable_own_file_is_never_overwritten() {
+	fn an_unreadable_stored_value_is_never_overwritten() {
 		let folder = TempDir::new("sync-unreadable");
+		let store = Arc::new(MemoryStore::default());
 		let (a, _) = copies(&folder);
 		let book = doc("One.\nTwo.\n", &[]);
-		fs::write(folder.path().join("mac.toml"), "not toml [").unwrap();
-		let mac = device(folder.path(), "mac");
+		store.set("device.mac".to_string(), "not toml [".to_string());
+		let mac = device(&store, "mac");
 		mac.sync_open(&a, &book);
 		mac.set_document_position(&a, 5);
 		mac.flush();
-		assert_eq!(fs::read_to_string(folder.path().join("mac.toml")).unwrap(), "not toml [");
+		assert_eq!(store.get("device.mac".to_string()).unwrap(), "not toml [");
 	}
 
 	#[test]
 	fn a_move_not_yet_saved_survives_taking_bookmarks_from_another_device() {
 		let folder = TempDir::new("sync-unsaved-move");
+		let store = Arc::new(MemoryStore::default());
 		let (a, b) = copies(&folder);
 		let book = doc("One.\nTwo.\nThree.\n", &[]);
-		let mac = device(folder.path(), "mac");
-		let phone = device(folder.path(), "iphone");
+		let mac = device(&store, "mac");
+		let phone = device(&store, "iphone");
 		mac.sync_open(&a, &book);
 		phone.sync_open(&b, &book);
 		mac.add_bookmark(&a, 5, 5, "");
@@ -755,10 +779,10 @@ mod tests {
 
 	#[test]
 	fn nothing_is_written_until_something_changes() {
-		let folder = TempDir::new("sync-quiet");
-		let mac = device(folder.path(), "mac");
+		let store = Arc::new(MemoryStore::default());
+		let mac = device(&store, "mac");
 		mac.flush();
-		assert!(!folder.path().join("mac.toml").exists());
+		assert!(store.get("device.mac".to_string()).is_none());
 	}
 
 	fn fixture(name: &str) -> Option<String> {

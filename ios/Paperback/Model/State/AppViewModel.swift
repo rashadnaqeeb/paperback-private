@@ -33,6 +33,7 @@ final class AppViewModel {
 	init() {
 		setPdfiumLibraryPath(path: Bundle.main.bundlePath + "/Frameworks/libpdfium.framework")
 		_ = configManager.initialize(configPath: configFilePath())
+		configManager.syncStartFfi(device: "iphone", store: ICloudSyncStore())
 		swipeUpMovesForward = configManager.getAppBool(key: "swipe_up_moves_forward", defaultValue: true)
 		hidePrevNextButtons = configManager.getAppBool(key: "hide_prev_next_buttons", defaultValue: false)
 		reading.context = self
@@ -63,6 +64,13 @@ final class AppViewModel {
 				self?.watchForSyncedPosition()
 			}
 			.store(in: &cancellables)
+		NotificationCenter.default.publisher(for: NSUbiquitousKeyValueStore.didChangeExternallyNotification)
+			.sink { [weak self] _ in
+				Task { @MainActor [weak self] in
+					self?.takeSyncedPosition()
+				}
+			}
+			.store(in: &cancellables)
 		NotificationCenter.default.publisher(for: .pbMagicTap)
 			.sink { [weak self] _ in
 				Task { @MainActor [weak self] in
@@ -91,7 +99,6 @@ final class AppViewModel {
 		}
 		Task {
 			guard let local = try? await BooksFolder.download(url), book == nil else { return }
-			await fetchSyncFiles()
 			openBook(url: local)
 			if book == nil { UserDefaults.standard.removeObject(forKey: Self.openBookKey) }
 		}
@@ -141,36 +148,14 @@ final class AppViewModel {
 
 	// MARK: Sync
 
-	@ObservationIgnored private var syncFolder: URL?
 	@ObservationIgnored private var pendingSave: Task<Void, Never>?
+	/// The book, and the place in it, that a newer place from the Mac may still replace, and until when.
+	@ObservationIgnored private var watching: (path: String, position: Int64, until: Date)?
 
-	/// The sync folder inside the books folder, set up with the engine the first time it is asked for and again whenever
-	/// the books folder is chosen anew. Nil until there is a books folder.
-	private func currentSyncFolder() -> URL? {
-		guard let books = booksFolder.folderURL else { return nil }
-		let folder = SyncFolder.url(in: books)
-		if folder != syncFolder {
-			// Not remembered when the engine could not use the folder, so the next call tries again.
-			guard configManager.syncConfigureFfi(folder: folder.path(percentEncoded: false), device: SyncFolder.device) else { return nil }
-			syncFolder = folder
-		}
-		return folder
-	}
-
-	/// Brings the Mac's sync file down from iCloud, before a book opens so it opens where it was last read on either.
-	func fetchSyncFiles() async {
-		guard let folder = currentSyncFolder() else { return }
-		await SyncFolder.fetch(folder)
-	}
-
-	/// Writes the config, and with it this device's sync file.
+	/// Writes the config, and with it this device's entry in the iCloud store.
 	func saveConfig() {
 		pendingSave?.cancel()
-		guard let folder = currentSyncFolder() else {
-			configManager.flush()
-			return
-		}
-		SyncFolder.coordinate(in: folder) { configManager.flush() }
+		configManager.flush()
 	}
 
 	/// Saves once the reader has stayed on one paragraph a few seconds, so the other device has the place even if this
@@ -184,27 +169,27 @@ final class AppViewModel {
 		}
 	}
 
-	@ObservationIgnored private var watch: Task<Void, Never>?
-
-	/// After a book opens or the app comes back to the front, keeps looking for where the Mac left the book until the
-	/// reader moves, since iCloud can take a while to bring the Mac's file. Taking it moves the book as a jump, so the
-	/// scrub returns to where this phone was. Once the reader has moved, nothing moves the book: that would be mid-page.
+	/// After a book opens or the app comes back to the front, takes where the Mac left the book: now, and whenever iCloud
+	/// brings a change from it in the next two minutes, since it can take a while. Taking it moves the book as a jump, so
+	/// the scrub returns to where this phone was. Once the reader has moved, nothing moves the book: that would be
+	/// mid-page.
 	private func watchForSyncedPosition() {
-		watch?.cancel()
-		guard let path = bookPath else { return }
-		let start = reading.position
-		watch = Task { [weak self] in
-			for _ in 0..<24 {
-				guard let self, !Task.isCancelled, self.bookPath == path, self.reading.position == start else { return }
-				await self.fetchSyncFiles()
-				guard !Task.isCancelled, self.bookPath == path, self.reading.position == start else { return }
-				if let move = self.configManager.syncPullFfi().first(where: { $0.path == path }) {
-					self.reading.goToPosition(move.position)
-					return
-				}
-				try? await Task.sleep(for: .seconds(5))
-			}
+		guard let path = bookPath else {
+			watching = nil
+			return
 		}
+		watching = (path, reading.position, Date().addingTimeInterval(120))
+		takeSyncedPosition()
+	}
+
+	private func takeSyncedPosition() {
+		guard let watch = watching, watch.path == bookPath, watch.position == reading.position, Date() < watch.until else {
+			watching = nil
+			return
+		}
+		guard let move = configManager.syncPullFfi().first(where: { $0.path == watch.path }) else { return }
+		watching = nil
+		reading.goToPosition(move.position)
 	}
 
 	// MARK: Bookmarks and where the reader is

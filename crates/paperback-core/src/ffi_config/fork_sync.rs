@@ -1,9 +1,9 @@
 //! Sync for the fork's iPhone app (`config::manager::fork_sync`).
 
-use std::{path::Path, sync::Arc};
+use std::sync::Arc;
 
 use super::ConfigManagerFfi;
-use crate::session::DocumentSession;
+use crate::{config::SyncStore, session::DocumentSession};
 
 /// A book whose position another device moved, and where to.
 #[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
@@ -17,9 +17,8 @@ pub struct SyncMoveFfi {
 #[allow(clippy::needless_pass_by_value)]
 #[cfg_attr(feature = "uniffi", uniffi::export)]
 impl ConfigManagerFfi {
-	/// False when the folder cannot be used, so the caller can try again later.
-	pub fn sync_configure_ffi(&self, folder: String, device: String) -> bool {
-		self.inner.lock().unwrap().sync_configure(Path::new(&folder), &device)
+	pub fn sync_start_ffi(&self, device: String, store: Arc<dyn SyncStore>) {
+		self.inner.lock().unwrap().sync_start(&device, store);
 	}
 
 	/// Call after parsing a book and before reading its position. True when another device's

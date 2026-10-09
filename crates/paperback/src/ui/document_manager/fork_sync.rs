@@ -1,5 +1,6 @@
-//! The fork's sync on the desktop (paperback-core's `config::manager::fork_sync`): where the sync
-//! folder is, and a timer that sends the reader's place to the other devices and takes theirs.
+//! The fork's sync on the desktop (paperback-core's `config::manager::fork_sync`): Apple's iCloud
+//! key-value store as the place it syncs through, and a timer that sends the reader's place to the
+//! other devices and takes theirs.
 //!
 //! The timer, not window activation, does the work. Activation also comes and goes with every
 //! dialog, and a Mac left with Paperback in front (the screen locked, the reader away at the
@@ -15,10 +16,10 @@ use std::{
 	time::{Duration, Instant},
 };
 
-use paperback_core::config::ConfigManager;
+use paperback_core::{config::ConfigManager, session::DocumentSession};
 use wxdragon::{prelude::*, timer::Timer};
 
-use super::{DocumentManager, move_to_offset_and_record_history, persist_navigation_history};
+use super::{DocumentManager, move_to_offset_and_record_history, parse_settings, persist_navigation_history};
 
 const TICK_MS: i32 = 2000;
 /// How long the caret stays put before its place is sent. Long enough to pass over the places a
@@ -32,27 +33,84 @@ const WATCH_AFTER_FRONT: Duration = Duration::from_mins(2);
 const AWAY: Duration = Duration::from_mins(2);
 const PULL_EVERY: Duration = Duration::from_secs(10);
 
-/// `PAPERBACK_SYNC_DIR` when set, otherwise Paperback Sync inside iCloud Drive's books folder,
-/// where the iPhone app reaches it through the access it already has to the books. Off for a
-/// scratch `PAPERBACK_CONFIG_DIR` without a sync folder of its own, whose blank settings are no
-/// place to sync from, and off everywhere but the Mac, the one desktop the fork is for.
-fn sync_folder() -> Option<PathBuf> {
-	if !cfg!(target_os = "macos") {
-		return None;
+/// Starts sync through iCloud, on the Mac only, the one desktop the fork is for. Off for a scratch
+/// `PAPERBACK_CONFIG_DIR`, whose blank settings are no place to sync from. The store only reaches
+/// iCloud from the signed app bundle (`macos-signing/build-app.sh`), which carries the entitlement.
+pub fn configure_sync(config: &ConfigManager) {
+	#[cfg(target_os = "macos")]
+	if env::var_os("PAPERBACK_CONFIG_DIR").is_none() {
+		config.sync_start("mac", std::sync::Arc::new(icloud::ICloudStore::new()));
 	}
-	if let Some(folder) = env::var_os("PAPERBACK_SYNC_DIR") {
-		return Some(folder.into());
-	}
-	if env::var_os("PAPERBACK_CONFIG_DIR").is_some() {
-		return None;
-	}
-	let books = PathBuf::from(env::var_os("HOME")?).join("Library/Mobile Documents/com~apple~CloudDocs/books");
-	books.is_dir().then(|| books.join("Paperback Sync"))
+	#[cfg(not(target_os = "macos"))]
+	let _ = config;
 }
 
-pub fn configure_sync(config: &ConfigManager) {
-	if let Some(folder) = sync_folder() {
-		config.sync_configure(&folder, "mac");
+#[cfg(target_os = "macos")]
+mod icloud {
+	use std::{
+		ffi::{CStr, CString, c_char},
+		ptr,
+	};
+
+	use objc::{class, msg_send, runtime::Object, sel, sel_impl};
+	use paperback_core::config::SyncStore;
+
+	/// `NSUbiquitousKeyValueStore`, which the iPhone app shares by naming the same store in its
+	/// entitlements.
+	pub struct ICloudStore;
+
+	impl ICloudStore {
+		pub fn new() -> Self {
+			// Picks up what iCloud brought while the app was not running.
+			let _: bool = unsafe { msg_send![store(), synchronize] };
+			Self
+		}
+	}
+
+	fn store() -> *mut Object {
+		unsafe { msg_send![class!(NSUbiquitousKeyValueStore), defaultStore] }
+	}
+
+	fn ns_string(text: &str) -> *mut Object {
+		let Ok(text) = CString::new(text) else { return ptr::null_mut() };
+		unsafe { msg_send![class!(NSString), stringWithUTF8String: text.as_ptr()] }
+	}
+
+	/// # Safety
+	///
+	/// `string` is null or a live `NSString`.
+	unsafe fn rust_string(string: *mut Object) -> Option<String> {
+		if string.is_null() {
+			return None;
+		}
+		let utf8: *const c_char = unsafe { msg_send![string, UTF8String] };
+		(!utf8.is_null()).then(|| unsafe { CStr::from_ptr(utf8) }.to_string_lossy().into_owned())
+	}
+
+	// Called on the UI thread only, inside the event loop's autorelease pool.
+	impl SyncStore for ICloudStore {
+		fn get(&self, key: String) -> Option<String> {
+			let value: *mut Object = unsafe { msg_send![store(), stringForKey: ns_string(&key)] };
+			unsafe { rust_string(value) }
+		}
+
+		fn set(&self, key: String, value: String) {
+			let _: () = unsafe { msg_send![store(), setString: ns_string(&value) forKey: ns_string(&key)] };
+		}
+
+		fn keys(&self) -> Vec<String> {
+			unsafe {
+				let dictionary: *mut Object = msg_send![store(), dictionaryRepresentation];
+				let keys: *mut Object = msg_send![dictionary, allKeys];
+				let count: usize = msg_send![keys, count];
+				(0..count)
+					.filter_map(|index| {
+						let key: *mut Object = msg_send![keys, objectAtIndex: index];
+						rust_string(key)
+					})
+					.collect()
+			}
+		}
 	}
 }
 
@@ -64,11 +122,14 @@ pub struct SyncWatch {
 	last_pull: Option<Instant>,
 	/// Each open book's length as sync last saw it, to notice a book parsed again.
 	lengths: BTreeMap<PathBuf, i64>,
+	/// Books with a saved place that sync has not seen yet, offered to the other devices one per
+	/// tick; `None` until the first tick lists them.
+	unseen: Option<Vec<String>>,
 }
 
 impl SyncWatch {
 	pub const fn new() -> Self {
-		Self { caret: None, front: None, last_pull: None, lengths: BTreeMap::new() }
+		Self { caret: None, front: None, last_pull: None, lengths: BTreeMap::new(), unseen: None }
 	}
 }
 
@@ -106,6 +167,7 @@ impl DocumentManager {
 				config.sync_reparsed(&tab.file_path.to_string_lossy(), tab.session.handle().document());
 			}
 		}
+		offer_one_saved_place(&config, &mut watch);
 		let Some(tab) = self.active_tab().filter(|tab| tab.track) else {
 			watch.caret = None;
 			return;
@@ -150,5 +212,31 @@ impl DocumentManager {
 			persist_navigation_history(&self.config, tab.track.then_some(&update));
 		}
 		self.update_status_bar();
+	}
+}
+
+/// Every book the config has a place for goes to the other devices, not only those opened since
+/// sync began: the first run after sync arrived carries the places read before it. One book per
+/// tick, since each has to be parsed to convert its place, and parsing them all at once would
+/// hold the window up.
+fn offer_one_saved_place(config: &ConfigManager, watch: &mut SyncWatch) {
+	let unseen = watch.unseen.get_or_insert_with(|| {
+		config
+			.get_all_documents()
+			.into_iter()
+			.filter(|path| config.get_document_position(path) > 0 || !config.get_bookmarks(path).is_empty())
+			.collect()
+	});
+	while let Some(path) = unseen.pop() {
+		if !Path::new(&path).is_file() || config.sync_knows(&path) {
+			continue;
+		}
+		let password = config.get_document_password(&path);
+		let format = config.get_document_format(&path);
+		if let Ok(session) = DocumentSession::new(&path, &password, &format, parse_settings(config)) {
+			config.sync_open(&path, session.handle().document());
+			config.flush();
+		}
+		return;
 	}
 }

@@ -29,6 +29,7 @@ mod readability;
 mod sidecar;
 
 pub use document_list::{compute_document_hash, get_sorted_document_list};
+pub use fork_sync::SyncStore;
 
 pub struct ConfigManager {
 	data: RefCell<ConfigData>,

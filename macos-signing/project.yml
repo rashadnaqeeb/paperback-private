@@ -1,0 +1,18 @@
+# The fork's Mac app is built by Cargo, not Xcode, but only Xcode's automatic signing registers the
+# app ID with iCloud and fetches a provisioning profile for it. This stand-in app exists for that:
+# `build-app.sh` builds it once to get the profile, then signs the real bundle with it.
+name: PaperbackSigning
+targets:
+  PaperbackSigning:
+    type: application
+    platform: macOS
+    deploymentTarget: "13.0"
+    sources: [Sources]
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.rashadnaqeeb.paperback.mac
+      PRODUCT_NAME: PaperbackSigning
+      DEVELOPMENT_TEAM: D5L87433H8
+      CODE_SIGN_STYLE: Automatic
+      CODE_SIGN_ENTITLEMENTS: Paperback.entitlements
+      GENERATE_INFOPLIST_FILE: YES
+      ENABLE_HARDENED_RUNTIME: NO
