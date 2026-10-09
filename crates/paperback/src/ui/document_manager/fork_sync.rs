@@ -39,7 +39,16 @@ const PULL_EVERY: Duration = Duration::from_secs(10);
 pub fn configure_sync(config: &ConfigManager) {
 	#[cfg(target_os = "macos")]
 	if env::var_os("PAPERBACK_CONFIG_DIR").is_none() {
-		config.sync_start("mac", std::sync::Arc::new(icloud::ICloudStore::new()));
+		let store = icloud::ICloudStore::new();
+		let devices: Vec<(String, usize)> = paperback_core::config::SyncStore::keys(&store)
+			.into_iter()
+			.map(|key| {
+				let bytes = paperback_core::config::SyncStore::get(&store, key.clone()).map_or(0, |value| value.len());
+				(key, bytes)
+			})
+			.collect();
+		tracing::info!(?devices, "sync through iCloud started");
+		config.sync_start("mac", std::sync::Arc::new(store));
 	}
 	#[cfg(not(target_os = "macos"))]
 	let _ = config;
@@ -95,6 +104,7 @@ mod icloud {
 		}
 
 		fn set(&self, key: String, value: String) {
+			tracing::debug!(key, bytes = value.len(), "wrote this Mac's places to iCloud");
 			let _: () = unsafe { msg_send![store(), setString: ns_string(&value) forKey: ns_string(&key)] };
 		}
 
@@ -147,7 +157,8 @@ impl DocumentManager {
 			}
 		});
 		if config.lock().unwrap().sync_enabled() {
-			timer.start(TICK_MS, false);
+			let started = timer.start(TICK_MS, false);
+			tracing::info!(started, "sync timer");
 		}
 		timer
 	}
@@ -205,6 +216,7 @@ impl DocumentManager {
 		if moves.is_empty() {
 			return;
 		}
+		tracing::info!(books = moves.len(), "took newer places from another device");
 		for (path, position) in moves {
 			let Some(index) = self.find_tab_by_path(Path::new(&path)) else { continue };
 			let tab = &mut self.tabs[index];
@@ -221,14 +233,22 @@ impl DocumentManager {
 /// hold the window up.
 fn offer_one_saved_place(config: &ConfigManager, watch: &mut SyncWatch) {
 	let unseen = watch.unseen.get_or_insert_with(|| {
-		config
+		let unseen: Vec<String> = config
 			.get_all_documents()
 			.into_iter()
 			.filter(|path| config.get_document_position(path) > 0 || !config.get_bookmarks(path).is_empty())
-			.collect()
+			.collect();
+		tracing::info!(books = unseen.len(), "offering saved places to sync");
+		unseen
 	});
 	while let Some(path) = unseen.pop() {
 		if !Path::new(&path).is_file() || config.sync_knows(&path) {
+			tracing::debug!(
+				path,
+				file = Path::new(&path).is_file(),
+				known = config.sync_knows(&path),
+				"saved place skipped"
+			);
 			continue;
 		}
 		let password = config.get_document_password(&path);
@@ -236,6 +256,7 @@ fn offer_one_saved_place(config: &ConfigManager, watch: &mut SyncWatch) {
 		if let Ok(session) = DocumentSession::new(&path, &password, &format, parse_settings(config)) {
 			config.sync_open(&path, session.handle().document());
 			config.flush();
+			tracing::info!(path, "offered a saved place to sync");
 		}
 		return;
 	}
