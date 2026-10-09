@@ -15,8 +15,19 @@ use crate::{
 const MIN_FIRST_PIECE: usize = 40;
 /// A piece at least this long is prose, whatever its ending.
 const LONG_PIECE: usize = 100;
-const SENTENCE_END: &[char] =
-	&['.', '!', '?', ':', ';', '"', '\'', '\u{201D}', '\u{2019}', '\u{00BB}', ')', ']', '\u{2026}', '*', '\u{201C}'];
+const SENTENCE_END: &[char] = &['.', '!', '?', ':', ';', '\u{2026}', '*'];
+/// Closing quotes and brackets that may follow a sentence's last mark. Alone, they end index entries and list items.
+const CLOSERS: &[char] = &['"', '\'', '\u{201D}', '\u{2019}', '\u{00BB}', ')', ']'];
+/// Formats made of books, where scans come from. Every other format's line breaks are kept as its parser left them:
+/// PDF rebuilds its own paragraphs, and text, code, and manual pages break lines on purpose. Books with recorded audio
+/// are left alone too, since the audio is bound to the text's positions.
+const BOOK_FORMATS: &[&str] = &[
+	paperback_formats::EPUB.name,
+	paperback_formats::WORD.name,
+	paperback_formats::DAISY.name,
+	paperback_formats::MOBI.name,
+	paperback_formats::FB2.name,
+];
 
 struct Line<'a> {
 	text: &'a str,
@@ -26,6 +37,11 @@ struct Line<'a> {
 	blocked: bool,
 	/// Set when a section, chapter, or table of contents entry begins here, which nothing joins across.
 	starts_section: bool,
+}
+
+/// Whether documents of the format a parser was registered for get their cut paragraphs joined.
+pub(super) fn repairs(format_name: &str) -> bool {
+	BOOK_FORMATS.contains(&format_name)
 }
 
 /// Joins every cut paragraph in the document, keeping its markers, ids, and table of contents on the same text.
@@ -130,7 +146,8 @@ fn collect_toc_offsets(items: &[TocItem], out: &mut Vec<usize>) {
 
 /// Whether a line stops mid-sentence and the next carries straight on, as either side of a cut does.
 fn is_cut(first: &Line, second: &Line) -> bool {
-	if first.blocked || second.blocked || second.starts_section {
+	// A carriage return left in the text would stay inside the joined paragraph as a line break of its own.
+	if first.blocked || second.blocked || second.starts_section || first.text.ends_with('\r') {
 		return false;
 	}
 	let mut ending = first.text.trim_end().chars().rev();
@@ -140,7 +157,26 @@ fn is_cut(first: &Line, second: &Line) -> bool {
 		Some('-') => ending.next().is_some_and(char::is_alphabetic),
 		_ => false,
 	};
-	open && second.text.chars().next().is_some_and(char::is_lowercase)
+	let Some(head) = second.text.chars().next() else { return false };
+	open && (head.is_lowercase() || head.is_uppercase() && is_cut_before_capital(first.text, second.text))
+}
+
+/// Whether a line is cut before a capitalized word, a name or "I", which is also how a heading, a caption, or an
+/// unpunctuated voice ends before the next paragraph. Only a piece that is plainly running prose counts: longer than
+/// any heading, already holding a finished sentence, and stopping on a lowercase letter, outside any inline table.
+fn is_cut_before_capital(first: &str, second: &str) -> bool {
+	let first = first.trim_end();
+	let finished_sentence = first.char_indices().any(|(at, ch)| {
+		matches!(ch, '.' | '!' | '?')
+			&& first[at + ch.len_utf8()..]
+				.trim_start_matches(['"', '\u{201D}', '\u{2019}'])
+				.starts_with(char::is_whitespace)
+	});
+	first.chars().count() >= LONG_PIECE
+		&& first.ends_with(char::is_lowercase)
+		&& finished_sentence
+		&& !first.contains('\t')
+		&& !second.contains('\t')
 }
 
 /// Whether a run of lines, each carrying on into the next, is one paragraph a printed page cut rather than verse, an
@@ -166,7 +202,7 @@ fn is_paragraph(pieces: &[Line]) -> bool {
 fn ends_sentence(text: &str) -> bool {
 	let text = text.trim_end();
 	let before_note = text.trim_end_matches(|ch: char| ch.is_ascii_digit());
-	before_note.ends_with(SENTENCE_END)
+	before_note.trim_end_matches(CLOSERS).ends_with(SENTENCE_END)
 		&& (before_note.len() == text.len() || !before_note.ends_with(char::is_whitespace))
 }
 
@@ -199,6 +235,53 @@ mod tests {
 	fn a_word_hyphenated_across_the_cut_joins_without_a_space() {
 		let first = "He had been around the world sixty-five times, and every time well-";
 		assert_eq!(joined(&format!("{first}\nknown faces met him.\n")), format!("{first}known faces met him.\n"));
+	}
+
+	#[test]
+	fn only_book_formats_are_repaired() {
+		assert!(repairs(paperback_formats::EPUB.name));
+		assert!(repairs(paperback_formats::WORD.name));
+		for format in [
+			&paperback_formats::PDF,
+			&paperback_formats::TEXT,
+			&paperback_formats::MARKDOWN,
+			&paperback_formats::HTML,
+			&paperback_formats::RTF,
+			&paperback_formats::MAN,
+		] {
+			assert!(!repairs(format.name), "{}", format.name);
+		}
+	}
+
+	#[test]
+	fn a_list_ending_in_brackets_is_not_a_finished_sentence() {
+		let content = "There are only four things we do better than anyone else in the world today\nmusic\nmicrocode (software)\n";
+		assert_eq!(joined(content), content);
+	}
+
+	#[test]
+	fn a_carriage_return_is_never_left_inside_a_joined_paragraph() {
+		let content = format!("{FIRST}\r\n{SECOND}");
+		assert_eq!(joined(&content), content);
+	}
+
+	#[test]
+	fn running_prose_cut_before_a_name_is_joined() {
+		let first =
+			"He came back in the rain. Dozens of strangers came through the town that week, and nobody noticed when";
+		let second = "Aureliano went out to meet them.";
+		assert_eq!(joined(&format!("{first}\n{second}")), format!("{first} {second}"));
+	}
+
+	#[test]
+	fn a_heading_or_unpunctuated_voice_before_a_capital_is_left_alone() {
+		for first in [
+			"The Albatross came to the South-Western Halls in the year I named the Constellations and counted the Dead",
+			"help me someone please help me let me out let me speak let me die let me be something more than this now",
+		] {
+			let content = format!("{first}\nHolsten sent his reply.");
+			assert_eq!(joined(&content), content);
+		}
 	}
 
 	#[test]
@@ -326,7 +409,7 @@ mod tests {
 		let Some((before, after)) = before_and_after("One_Hundred_Years_of_Solitude_rashad_naqeeb.epub") else {
 			return;
 		};
-		assert_eq!(before.lines().count() - after.lines().count(), 299);
+		assert_eq!(before.lines().count() - after.lines().count(), 317);
 		let mut joined = doc(&after);
 		join_cut_paragraphs(&mut joined);
 		assert_eq!(joined.buffer.content, after, "a second pass finds nothing left to join");

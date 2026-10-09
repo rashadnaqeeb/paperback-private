@@ -219,10 +219,7 @@ pub fn parse_document(context: &ParserContext) -> Result<Document> {
 	for parser in parsers {
 		match parser.parse(context) {
 			Ok(mut doc) => {
-				// PDF rebuilds its own paragraphs, a plain text file's line breaks are its author's, and recorded audio is
-				// bound to the text's positions.
-				let own_lines = [paperback_formats::PDF.name, paperback_formats::TEXT.name].contains(&parser.name());
-				if !own_lines && doc.audio.is_none() {
+				if fork_joins::repairs(parser.name()) && doc.audio.is_none() {
 					fork_joins::join_cut_paragraphs(&mut doc);
 				}
 				doc.compute_stats();
