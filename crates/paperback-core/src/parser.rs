@@ -24,6 +24,7 @@ pub mod daisy;
 pub mod epub;
 pub mod fb2;
 mod fork_joins;
+mod fork_notes;
 pub mod hlp;
 pub mod html;
 pub mod m4b;
@@ -221,6 +222,7 @@ pub fn parse_document(context: &ParserContext) -> Result<Document> {
 			Ok(mut doc) => {
 				if fork_joins::repairs(parser.name()) && doc.audio.is_none() {
 					fork_joins::join_cut_paragraphs(&mut doc);
+					fork_notes::link_bare_notes(&mut doc);
 				}
 				doc.compute_stats();
 				tracing::debug!(path = %context.file_path, parser = parser.name(), "parsed document");
