@@ -10,11 +10,11 @@ enum SyncFolder {
 		books.appendingPathComponent("Paperback Sync", isDirectory: true)
 	}
 
-	/// Brings the other devices' files down from iCloud, giving up after a few seconds so a phone that is offline still
-	/// opens its book at once.
+	/// Brings every device's file down from iCloud, this one's too since iOS may have removed its copy to save space,
+	/// giving up after a few seconds so a phone that is offline still opens its book at once.
 	nonisolated static func fetch(_ folder: URL) async {
 		let items = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
-		let files = items.map(realFile(for:)).filter { $0.pathExtension == "toml" && $0.lastPathComponent != "\(device).toml" }
+		let files = items.map(realFile(for:)).filter { $0.pathExtension == "toml" }
 		guard !files.isEmpty else { return }
 		await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
 			let finish = Once { continuation.resume() }

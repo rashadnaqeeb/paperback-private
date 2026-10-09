@@ -1,5 +1,5 @@
 use std::{
-	cell::Cell,
+	cell::{Cell, RefCell},
 	path::{Path, PathBuf},
 	rc::Rc,
 	sync::Mutex,
@@ -101,8 +101,8 @@ pub struct DocumentManager {
 	pub(super) config: Rc<Mutex<ConfigManager>>,
 	live_region_label: StaticText,
 	last_position_save: Cell<Option<Instant>>,
-	/// A move the throttle above held back, for the fork's sync to save when Paperback goes to the back.
-	position_unsaved: Cell<bool>,
+	/// What the fork's sync timer remembers between ticks.
+	sync_watch: RefCell<fork_sync::SyncWatch>,
 	last_sound_position: Cell<Option<i64>>,
 	last_audio_seek_position: Cell<Option<i64>>,
 	last_focus_in_text: Cell<bool>,
@@ -130,7 +130,7 @@ impl DocumentManager {
 			config,
 			live_region_label,
 			last_position_save: Cell::new(None),
-			position_unsaved: Cell::new(false),
+			sync_watch: RefCell::new(fork_sync::SyncWatch::new()),
 			last_sound_position: Cell::new(None),
 			last_audio_seek_position: Cell::new(None),
 			last_focus_in_text: Cell::new(true),

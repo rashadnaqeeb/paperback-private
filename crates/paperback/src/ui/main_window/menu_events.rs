@@ -42,6 +42,7 @@ impl MainWindow {
 		// keeps the wx timer alive for the window's lifetime.
 		let sleep_timer_handle = Rc::clone(sleep_timer.timer());
 		let mut timers = background::start_timers(frame, doc_manager);
+		timers.push(DocumentManager::sync_timer(frame, doc_manager, &config));
 		timers.push(sleep_timer_handle);
 		background::bind_resize(frame, doc_manager);
 		frame.on_menu(move |event| {

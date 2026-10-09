@@ -112,18 +112,13 @@ pub(super) fn bind_document_events(
 			}
 			activate_reload_guard.set(false);
 		}
-		// The fork's sync: what was read here goes to the other devices when Paperback goes to the
-		// back, and what they read since is taken when it comes to the front. Only a move the reader
-		// made is saved: while a book opens the caret passes through other places, and saving one of
-		// those would send it to the other devices as newer than where the book was left.
+		// The fork's sync timer watches for what other devices read once Paperback is back in front.
+		#[cfg(target_os = "macos")]
 		if let WindowEventData::Activate(activate) = &event
-			&& let Ok(mut dm_ref) = dm_for_activate.try_lock()
+			&& activate.is_active()
+			&& let Ok(dm_ref) = dm_for_activate.try_lock()
 		{
-			if activate.is_active() {
-				dm_ref.take_synced_positions();
-			} else {
-				dm_ref.save_unsaved_position();
-			}
+			dm_ref.came_to_front();
 		}
 	});
 	let dm = Rc::clone(doc_manager);

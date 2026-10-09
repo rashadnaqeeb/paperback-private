@@ -17,8 +17,9 @@ pub struct SyncMoveFfi {
 #[allow(clippy::needless_pass_by_value)]
 #[cfg_attr(feature = "uniffi", uniffi::export)]
 impl ConfigManagerFfi {
-	pub fn sync_configure_ffi(&self, folder: String, device: String) {
-		self.inner.lock().unwrap().sync_configure(Path::new(&folder), &device);
+	/// False when the folder cannot be used, so the caller can try again later.
+	pub fn sync_configure_ffi(&self, folder: String, device: String) -> bool {
+		self.inner.lock().unwrap().sync_configure(Path::new(&folder), &device)
 	}
 
 	/// Call after parsing a book and before reading its position. True when another device's

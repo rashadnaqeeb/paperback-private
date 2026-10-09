@@ -60,7 +60,7 @@ final class AppViewModel {
 			.store(in: &cancellables)
 		NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)
 			.sink { [weak self] _ in
-				self?.takeSyncedPosition()
+				self?.watchForSyncedPosition()
 			}
 			.store(in: &cancellables)
 		NotificationCenter.default.publisher(for: .pbMagicTap)
@@ -118,6 +118,7 @@ final class AppViewModel {
 			UserDefaults.standard.set(url.lastPathComponent, forKey: Self.openBookKey)
 			reading.loadSegment(for: opened)
 			reading.updateNowPlaying()
+			watchForSyncedPosition()
 		} catch {
 			debugMessage = "Error opening '\(url.lastPathComponent)':\n\(error)\n\nPath: \(path)"
 		}
@@ -149,7 +150,8 @@ final class AppViewModel {
 		guard let books = booksFolder.folderURL else { return nil }
 		let folder = SyncFolder.url(in: books)
 		if folder != syncFolder {
-			configManager.syncConfigureFfi(folder: folder.path(percentEncoded: false), device: SyncFolder.device)
+			// Not remembered when the engine could not use the folder, so the next call tries again.
+			guard configManager.syncConfigureFfi(folder: folder.path(percentEncoded: false), device: SyncFolder.device) else { return nil }
 			syncFolder = folder
 		}
 		return folder
@@ -182,14 +184,26 @@ final class AppViewModel {
 		}
 	}
 
-	/// Coming back to the front after reading on the Mac moves the open book to where the Mac left it, as a jump, so the
-	/// scrub returns to where this phone was. Never while the app is in front: that would move the reader mid-page.
-	private func takeSyncedPosition() {
-		Task {
-			await fetchSyncFiles()
-			let moves = configManager.syncPullFfi()
-			guard let bookPath, let move = moves.first(where: { $0.path == bookPath }) else { return }
-			reading.goToPosition(move.position)
+	@ObservationIgnored private var watch: Task<Void, Never>?
+
+	/// After a book opens or the app comes back to the front, keeps looking for where the Mac left the book until the
+	/// reader moves, since iCloud can take a while to bring the Mac's file. Taking it moves the book as a jump, so the
+	/// scrub returns to where this phone was. Once the reader has moved, nothing moves the book: that would be mid-page.
+	private func watchForSyncedPosition() {
+		watch?.cancel()
+		guard let path = bookPath else { return }
+		let start = reading.position
+		watch = Task { [weak self] in
+			for _ in 0..<24 {
+				guard let self, !Task.isCancelled, self.bookPath == path, self.reading.position == start else { return }
+				await self.fetchSyncFiles()
+				guard !Task.isCancelled, self.bookPath == path, self.reading.position == start else { return }
+				if let move = self.configManager.syncPullFfi().first(where: { $0.path == path }) {
+					self.reading.goToPosition(move.position)
+					return
+				}
+				try? await Task.sleep(for: .seconds(5))
+			}
 		}
 	}
 

@@ -115,14 +115,24 @@ final class ReadingViewController: UIViewController, UIScrollViewAccessibilityDe
 	private func setCurrent(_ unit: Int) {
 		guard unit != currentUnit else { return }
 		currentUnit = unit
-		onPositionChange?(model.position(ofUnit: unit))
+		if let jumpedPosition, model.unit(forPosition: jumpedPosition) == unit {
+			onPositionChange?(jumpedPosition)
+		} else {
+			onPositionChange?(model.position(ofUnit: unit))
+		}
 	}
 
 	// MARK: Jumps
 
+	/// The position being jumped to, reported in place of its paragraph's start, so a place the Mac saved partway into a
+	/// paragraph is not sent back to it as the paragraph's start.
+	private var jumpedPosition: Int64?
+
 	/// Moves to a position the app chose (a table of contents entry, a search result), remembered for the scrub.
 	func jump(toPosition position: Int64) {
+		jumpedPosition = position
 		jump(to: model.unit(forPosition: position))
+		jumpedPosition = nil
 	}
 
 	func jump(to unit: Int) {
