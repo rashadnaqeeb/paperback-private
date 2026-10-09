@@ -6,9 +6,11 @@ import XCTest
 private final class PagedSession: DocumentSession, @unchecked Sendable {
 	var buffer = ""
 	var markers: [LineMarker] = []
+	var toc: [TocEntry] = []
 
 	override func content() -> String { buffer }
 	override func getStructureMarkersFfi() -> [LineMarker] { markers }
+	override func getToc() -> [TocEntry] { toc }
 	override func getStatusInfo(position: Int64) -> StatusInfo {
 		StatusInfo(lineNumber: 0, characterNumber: position, percentage: Int32(position * 100 / Int64(buffer.unicodeScalars.count)))
 	}

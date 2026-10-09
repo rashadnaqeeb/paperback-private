@@ -7,6 +7,7 @@ import XCTest
 private final class TextSession: DocumentSession, @unchecked Sendable {
 	var buffer = ""
 	var markers: [LineMarker] = []
+	var toc: [TocEntry] = []
 
 	private var lineStarts: [Int64] {
 		var starts: [Int64] = [0]
@@ -26,6 +27,7 @@ private final class TextSession: DocumentSession, @unchecked Sendable {
 		Int64(lineStarts.filter { $0 <= position }.count)
 	}
 	override func getStructureMarkersFfi() -> [LineMarker] { markers }
+	override func getToc() -> [TocEntry] { toc }
 
 	func mark(_ type: MarkerType, at position: Int64, text: String = "") {
 		markers.append(LineMarker(mtype: type, position: position, text: text, reference: "", level: 0, length: 0))
@@ -213,7 +215,7 @@ final class BookViewTests: XCTestCase {
 		XCTAssertGreaterThan(view.frame(forUnit: 1).height, view.bounds.height)
 	}
 
-	private func structuredView() -> BookView {
+	private func structuredView(contents: Bool = false) -> BookView {
 		let session = TextSession(noHandle: .init())
 		// Lines start at 0, 10, 39, 49, 62.
 		session.buffer = "Chapter 1\nText with note 1 and note 2.\nChapter 2\n[Image: Map]\nMore text here."
@@ -222,6 +224,9 @@ final class BookViewTests: XCTestCase {
 		session.mark(.link, at: 31, text: "note 2")
 		session.mark(.heading1, at: 39)
 		session.markers.append(LineMarker(mtype: .image, position: 49, text: "Map", reference: "", level: 0, length: 12))
+		if contents {
+			session.toc = [TocEntry(title: "Chapter 1", position: 0, level: 1), TocEntry(title: "Chapter 2", position: 39, level: 1)]
+		}
 		let view = BookView(model: BookModel(session: session))
 		view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
 		view.layoutIfNeeded()
@@ -301,6 +306,17 @@ final class BookViewTests: XCTestCase {
 		let rotors = structuredView().accessibilityCustomRotors ?? []
 		XCTAssertEqual(rotors.map(\.systemRotorType), [.heading, .link, .image])
 		XCTAssertEqual(view(paragraphs: 5).accessibilityCustomRotors?.count, 0)
+	}
+
+	func testTheSectionsRotorMovesBetweenContentsEntriesAndRecordsTheJump() {
+		let view = structuredView(contents: true)
+		var jumpedFrom: [Int] = []
+		view.onRotorJump = { jumpedFrom.append($0) }
+		let sections = view.accessibilityCustomRotors?.first { $0.name == t("Sections") }
+		XCTAssertEqual((search(sections, from: view.element(forUnit: 0)) as? ParagraphElement)?.unit, 2)
+		XCTAssertEqual(jumpedFrom, [0])
+		XCTAssertNil(search(sections, from: view.element(forUnit: 2)))
+		XCTAssertEqual((search(sections, from: view.element(forUnit: 3), forward: false) as? ParagraphElement)?.unit, 2)
 	}
 
 	func testTheBookmarksRotorAppearsOnceThereIsABookmark() {

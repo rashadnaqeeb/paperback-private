@@ -70,9 +70,10 @@ final class BookModel {
 	private var unitAtLine: [Int] = []
 	private(set) var headingUnits: [Int] = []
 	private(set) var imageUnits: [Int] = []
-	/// The first unit of each list and of each table, one rotor stop per structure.
-	private(set) var listUnits: [Int] = []
+	/// The first unit of each table, one rotor stop per table.
 	private(set) var tableUnits: [Int] = []
+	/// Where each table of contents entry starts, one Sections rotor stop each.
+	private(set) var sectionUnits: [Int] = []
 	/// The book's own pages: where each starts, in buffer order, and its printed number.
 	private(set) var pagePositions: [Int64] = []
 	private(set) var pageLabels: [String] = []
@@ -165,6 +166,7 @@ final class BookModel {
 			unit.hasInlineImage = image == nil && images[line] != nil
 			add(unit, joiningList: listEnd != nil)
 		}
+		sectionUnits = Set(session.getToc().map { unit(forPosition: $0.position) }).sorted()
 	}
 
 	/// A table of one cell, or one whose HTML could not be read, is a paragraph of its text. The engine stands in for a
@@ -187,7 +189,6 @@ final class BookModel {
 			blocks[last].units = blocks[last].units.lowerBound..<index + 1
 		} else if joiningList {
 			// A new list, or, after a table inside a list, the items that carry on in a container of their own.
-			if listStarting { listUnits.append(index) }
 			listStarting = false
 			blocks.append(BookBlock(kind: .list, units: index..<index + 1))
 		} else {

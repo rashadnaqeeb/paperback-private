@@ -49,7 +49,12 @@ final class BookView: UIScrollView {
 		super.init(frame: .zero)
 		isAccessibilityElement = false
 		backgroundColor = .systemBackground
-		isScrollEnabled = false
+		// VoiceOver asks only a scroll view it can scroll for the three-finger tap's status, so scrolling is on and the
+		// content a point taller than the page; the drag that would scroll it stays off, and the offset is pinned.
+		isScrollEnabled = true
+		panGestureRecognizer.isEnabled = false
+		alwaysBounceVertical = false
+		bounces = false
 		scrollsToTop = false
 		showsVerticalScrollIndicator = false
 		showsHorizontalScrollIndicator = false
@@ -225,7 +230,7 @@ final class BookView: UIScrollView {
 
 	override func layoutSubviews() {
 		super.layoutSubviews()
-		contentSize = bounds.size
+		contentSize = CGSize(width: bounds.width, height: bounds.height + 1)
 		showPage(from: pageStart)
 		// A taller text size or a rotation can push the focused unit off the page it was on.
 		if !isOnPage(focusedUnit) { showPage(from: focusedUnit) }
@@ -446,7 +451,7 @@ final class BookView: UIScrollView {
 			if !model.headingUnits.isEmpty { present.append(headingsRotor) }
 			if !model.linkStops.isEmpty { present.append(linksRotor) }
 			if !model.tableUnits.isEmpty { present.append(tablesRotor) }
-			if !model.listUnits.isEmpty { present.append(listsRotor) }
+			if !model.sectionUnits.isEmpty { present.append(sectionsRotor) }
 			if !model.imageUnits.isEmpty { present.append(imagesRotor) }
 			if !bookmarkPositions().isEmpty { present.append(bookmarksRotor) }
 			return present
@@ -461,8 +466,9 @@ final class BookView: UIScrollView {
 	private lazy var tablesRotor = unitRotor(systemType: .table, isJump: false) { view, from, forward in
 		view.structureStop(view.model.tableUnits, from: from, forward: forward)
 	}
-	private lazy var listsRotor = unitRotor(systemType: .list, isJump: false) { view, from, forward in
-		view.structureStop(view.model.listUnits, from: from, forward: forward)
+	// TRANSLATORS: Name of the VoiceOver rotor setting that moves between the sections of a book's table of contents
+	private lazy var sectionsRotor = unitRotor(name: t("Sections"), isJump: true) { view, from, forward in
+		BookModel.stop(in: view.model.sectionUnits, from: from, forward: forward)
 	}
 	private lazy var imagesRotor = unitRotor(systemType: .image, isJump: false) { view, from, forward in
 		BookModel.stop(in: view.model.imageUnits, from: from, forward: forward)
@@ -472,7 +478,7 @@ final class BookView: UIScrollView {
 		BookModel.stop(in: Set(view.bookmarkPositions().map(view.model.unit(forPosition:))).sorted(), from: from, forward: forward)
 	}
 
-	/// The next or previous list or table, counted from the start of the one the origin is inside.
+	/// The next or previous table, counted from the start of the one the origin is inside.
 	private func structureStop(_ stops: [Int], from: Int, forward: Bool) -> Int? {
 		let start = model.blocks[model.blockOfUnit[from]].units.lowerBound
 		return BookModel.stop(in: stops, from: forward ? max(from, start) : start, forward: forward)

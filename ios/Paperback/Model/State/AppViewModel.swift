@@ -117,6 +117,7 @@ final class AppViewModel {
 				forcedExtension: "",
 				renderTablesInline: false
 			)
+			NSUbiquitousKeyValueStore.default.synchronize()
 			_ = configManager.syncOpenFfi(path: path, session: session)
 			let title = session.title().isEmpty ? url.deletingPathExtension().lastPathComponent : session.title()
 			let opened = OpenBook(title: title, url: url, currentPosition: configManager.getDocumentPosition(path: path), session: session)
@@ -149,8 +150,8 @@ final class AppViewModel {
 	// MARK: Sync
 
 	@ObservationIgnored private var pendingSave: Task<Void, Never>?
-	/// The book, and the place in it, that a newer place from the Mac may still replace, and until when.
-	@ObservationIgnored private var watching: (path: String, position: Int64, until: Date)?
+	/// The book, and the place in it, that a newer place from the Mac may still replace.
+	@ObservationIgnored private var watching: (path: String, position: Int64)?
 
 	/// Writes the config, and with it this device's entry in the iCloud store.
 	func saveConfig() {
@@ -170,23 +171,24 @@ final class AppViewModel {
 	}
 
 	/// After a book opens or the app comes back to the front, takes where the Mac left the book: now, and whenever iCloud
-	/// brings a change from it in the next two minutes, since it can take a while. Taking it moves the book as a jump, so
-	/// the scrub returns to where this phone was. Once the reader has moved, nothing moves the book: that would be
-	/// mid-page.
+	/// brings a change from it until the reader moves, since iCloud can take a while, longest just after the app is
+	/// installed. Taking it moves the book as a jump, so the scrub returns to where this phone was. Once the reader has
+	/// moved, nothing moves the book: that would be mid-page.
 	private func watchForSyncedPosition() {
 		guard let path = bookPath else {
 			watching = nil
 			return
 		}
-		watching = (path, reading.position, Date().addingTimeInterval(120))
+		watching = (path, reading.position)
 		takeSyncedPosition()
 	}
 
 	private func takeSyncedPosition() {
-		guard let watch = watching, watch.path == bookPath, watch.position == reading.position, Date() < watch.until else {
+		guard let watch = watching, watch.path == bookPath, watch.position == reading.position else {
 			watching = nil
 			return
 		}
+		NSUbiquitousKeyValueStore.default.synchronize()
 		guard let move = configManager.syncPullFfi().first(where: { $0.path == watch.path }) else { return }
 		watching = nil
 		reading.goToPosition(move.position)

@@ -77,9 +77,11 @@ final class TableParserTests: XCTestCase {
 private final class MarkedSession: DocumentSession, @unchecked Sendable {
 	var buffer = ""
 	var markers: [LineMarker] = []
+	var toc: [TocEntry] = []
 
 	override func content() -> String { buffer }
 	override func getStructureMarkersFfi() -> [LineMarker] { markers }
+	override func getToc() -> [TocEntry] { toc }
 
 	func mark(_ type: MarkerType, at position: Int64, length: Int64 = 0, text: String = "", reference: String = "") {
 		markers.append(LineMarker(mtype: type, position: position, text: text, reference: reference, level: 0, length: length))
@@ -115,7 +117,6 @@ final class ListAndTableTests: XCTestCase {
 		XCTAssertEqual(model.units[2].kind, .listItem)
 		XCTAssertEqual(model.blocks[1].kind, .list)
 		XCTAssertEqual(model.blocks[1].units, 1..<3)
-		XCTAssertEqual(model.listUnits, [1])
 	}
 
 	func testATableIsItsCaptionThenABlockOfRows() {
@@ -147,7 +148,7 @@ final class ListAndTableTests: XCTestCase {
 		session.mark(.list, at: 0, length: 22)
 		session.mark(.table, at: 4, reference: tableHTML)
 		let model = BookModel(session: session)
-		XCTAssertEqual(model.listUnits, [0])
+		XCTAssertEqual(model.blocks[0].kind, .list)
 		let after = model.units.firstIndex { $0.text == "• After" }!
 		XCTAssertEqual(model.units[after].kind, .listItem)
 		XCTAssertEqual(model.blocks[model.blockOfUnit[after]].kind, .list)
@@ -161,7 +162,7 @@ final class ListAndTableTests: XCTestCase {
 		session.mark(.table, at: 0, reference: tableHTML)
 		let model = BookModel(session: session)
 		XCTAssertFalse(model.blocks.contains { $0.units.isEmpty })
-		XCTAssertEqual(model.listUnits.count, 1)
+		XCTAssertEqual(model.blocks.filter { $0.kind == .list }.count, 1)
 	}
 
 	func testTheBookViewsElementsAreTheBlocks() {
@@ -210,12 +211,10 @@ final class ListAndTableTests: XCTestCase {
 		return rotor?.itemSearchBlock(predicate)?.targetElement
 	}
 
-	func testTheTablesAndListsRotorsStopOncePerStructure() {
+	func testTheTablesRotorStopsOncePerTableAndThereIsNoListsRotor() {
 		let view = view()
 		let tables = view.accessibilityCustomRotors?.first { $0.systemRotorType == .table }
-		let lists = view.accessibilityCustomRotors?.first { $0.systemRotorType == .list }
 		XCTAssertEqual((search(tables, from: view.element(forUnit: 0)) as? TableCellElement)?.unit, 4)
-		XCTAssertEqual((search(lists, from: view.element(forUnit: 0)) as? ParagraphElement)?.unit, 1)
-		XCTAssertNil(search(lists, from: view.element(forUnit: 2)))
+		XCTAssertFalse(view.accessibilityCustomRotors?.contains { $0.systemRotorType == .list } ?? true)
 	}
 }
