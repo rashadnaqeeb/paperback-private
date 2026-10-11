@@ -5,7 +5,7 @@ import XCTest
 @MainActor
 final class FixtureBookTests: XCTestCase {
 	private func path(_ name: String) throws -> String {
-		let path = NSHomeDirectory().components(separatedBy: "/Library/Developer").first! + "/Documents/home/books/\(name)"
+		let path = NSHomeDirectory().components(separatedBy: "/Library/Developer").first! + "/Library/Mobile Documents/com~apple~CloudDocs/books/\(name)"
 		try XCTSkipUnless(FileManager.default.fileExists(atPath: path), "fixture books not present")
 		return path
 	}

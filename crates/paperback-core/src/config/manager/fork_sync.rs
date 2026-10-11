@@ -786,7 +786,8 @@ mod tests {
 	}
 
 	fn fixture(name: &str) -> Option<String> {
-		let path = Path::new(&std::env::var_os("HOME")?).join("Documents/home/books").join(name);
+		let path =
+			Path::new(&std::env::var_os("HOME")?).join("Library/Mobile Documents/com~apple~CloudDocs/books").join(name);
 		path.is_file().then(|| path.to_string_lossy().into_owned())
 	}
 

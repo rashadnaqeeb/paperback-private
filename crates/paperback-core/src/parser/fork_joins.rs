@@ -469,7 +469,9 @@ mod tests {
 
 	/// A book from the fixture folder, which only some machines have; tests using one pass without it.
 	fn fixture(name: &str) -> Option<crate::document::ParserContext> {
-		let path = std::path::Path::new(&std::env::var_os("HOME")?).join("Documents/home/books").join(name);
+		let path = std::path::Path::new(&std::env::var_os("HOME")?)
+			.join("Library/Mobile Documents/com~apple~CloudDocs/books")
+			.join(name);
 		path.is_file().then(|| crate::document::ParserContext::new(path.to_string_lossy().into_owned()))
 	}
 
