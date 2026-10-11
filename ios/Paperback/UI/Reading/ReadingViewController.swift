@@ -29,12 +29,15 @@ final class ReadingViewController: UIViewController, UIScrollViewAccessibilityDe
 	/// The printed page the reader last turned to, and the unit it landed on, since a page can start inside a paragraph.
 	private var turnedTo: (unit: Int, page: Int)?
 
-	/// VoiceOver focuses the first element by itself when the screen appears, before the restore lands. Until focus
-	/// reaches the restore target, those stray focus events must not be saved, or they overwrite the real position with
-	/// the book's start. The restore is posted again a few times, then wherever the reader actually is counts.
+	/// VoiceOver puts focus somewhere by itself when the screen appears and when the app comes back to the front, often
+	/// on the book's first element. Until focus reaches the restore target, those stray focus events must neither turn
+	/// the page nor count as the reading position, or they replace the real position with the book's start and sync
+	/// carries that to the other device. Each stray event posts the restore again; after a few seconds without it
+	/// landing, wherever the reader goes counts.
 	private var restoreTarget = 0
-	private var hasRestored = false
-	private var restoreAttemptsLeft = 3
+	private var restoreUntil: Date?
+	/// Set on the way back to the front, so focus is restored once the app is active again.
+	private var returningToFront = false
 
 	init(model: BookModel, startUnit: Int) {
 		bookView = BookView(model: model)
@@ -50,8 +53,11 @@ final class ReadingViewController: UIViewController, UIScrollViewAccessibilityDe
 
 	override func viewDidLoad() {
 		super.viewDidLoad()
+		bookView.acceptsFocus = { [weak self] unit in
+			self?.acceptsFocus(at: unit) ?? true
+		}
 		bookView.onFocusChange = { [weak self] unit in
-			self?.handleFocus(at: unit)
+			self?.setCurrent(unit)
 		}
 		bookView.onActivate = { [weak self] in
 			self?.onMenu?()
@@ -64,6 +70,8 @@ final class ReadingViewController: UIViewController, UIScrollViewAccessibilityDe
 		}
 		bookView.onRotorJump = { [weak self] from in
 			guard let self else { return }
+			// A rotor move is the reader's own, wherever it lands.
+			restoreUntil = nil
 			onLeave?(model.position(ofUnit: from))
 		}
 		bookView.onPageScroll = { [weak self] forward in
@@ -77,9 +85,13 @@ final class ReadingViewController: UIViewController, UIScrollViewAccessibilityDe
 			swipe.direction = direction
 			view.addGestureRecognizer(swipe)
 		}
-		// Centered on the saved position before VoiceOver's first query, so the restored unit owns the screen from the
-		// start.
-		bookView.reveal(currentUnit)
+		NotificationCenter.default.addObserver(self, selector: #selector(willEnterForeground), name: UIApplication.willEnterForegroundNotification, object: nil)
+		NotificationCenter.default.addObserver(self, selector: #selector(didBecomeActive), name: UIApplication.didBecomeActiveNotification, object: nil)
+		// Laid out on the saved position before VoiceOver's first query, so the restored unit owns the screen from the
+		// start, in the middle of the page; VoiceOver may focus something before the screen has appeared.
+		bookView.center(on: currentUnit)
+		restoreTarget = currentUnit
+		restoreUntil = Date().addingTimeInterval(3)
 	}
 
 	override func viewDidAppear(_ animated: Bool) {
@@ -87,11 +99,11 @@ final class ReadingViewController: UIViewController, UIScrollViewAccessibilityDe
 		restoreFocus()
 	}
 
-	/// Puts VoiceOver back on the reader's unit, on opening and on returning from a screen over the book.
+	/// Puts VoiceOver back on the reader's unit: on opening, on returning from a screen over the book, and on coming
+	/// back to the front.
 	func restoreFocus() {
 		restoreTarget = currentUnit
-		hasRestored = false
-		restoreAttemptsLeft = 3
+		restoreUntil = Date().addingTimeInterval(3)
 		postRestoreFocus()
 	}
 
@@ -100,17 +112,28 @@ final class ReadingViewController: UIViewController, UIScrollViewAccessibilityDe
 		UIAccessibility.post(notification: .screenChanged, argument: element)
 	}
 
-	private func handleFocus(at unit: Int) {
-		if !hasRestored {
-			if unit == restoreTarget || restoreAttemptsLeft == 0 {
-				hasRestored = true
-			} else {
-				restoreAttemptsLeft -= 1
-				postRestoreFocus()
-				return
-			}
+	private func acceptsFocus(at unit: Int) -> Bool {
+		guard let until = restoreUntil else { return true }
+		// A flick from the target counts too: VoiceOver may already have been on it and never say it landed.
+		if abs(unit - restoreTarget) <= 1 || Date() >= until {
+			restoreUntil = nil
+			return true
 		}
-		setCurrent(unit)
+		postRestoreFocus()
+		return false
+	}
+
+	@objc private func willEnterForeground() {
+		returningToFront = true
+	}
+
+	/// Only after the app was in the background: becoming active after Control Center or a call banner leaves focus
+	/// where it is, so Read All carries on.
+	@objc private func didBecomeActive() {
+		guard returningToFront else { return }
+		returningToFront = false
+		guard view.window != nil, view.window?.rootViewController?.presentedViewController == nil else { return }
+		restoreFocus()
 	}
 
 	private func setCurrent(_ unit: Int) {

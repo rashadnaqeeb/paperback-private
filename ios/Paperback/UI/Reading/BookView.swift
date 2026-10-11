@@ -31,7 +31,11 @@ final class BookView: UIScrollView {
 	private var heights: [Int: CGFloat] = [:]
 	private var measuredWidth: CGFloat = 0
 	private let sizingLabel = UILabel()
+	/// A unit to center the page on once the view has a size.
+	private var pendingCenter: Int?
 
+	/// Whether focus landing on a unit is the reader's own move, asked before the page turns to it.
+	var acceptsFocus: (Int) -> Bool = { _ in true }
 	var onFocusChange: ((Int) -> Void)?
 	var onActivate: (() -> Void)?
 	var onEscape: (() -> Void)?
@@ -174,11 +178,23 @@ final class BookView: UIScrollView {
 	/// The first unit of the page that ends with `index`, for turning back a page.
 	private func pageStart(endingAt index: Int) -> Int {
 		let area = textArea
-		var used = height(ofUnit: index, width: area.width)
+		return pageStart(before: index, filling: area.height - height(ofUnit: index, width: area.width))
+	}
+
+	/// The first unit of the page with `index` in its middle.
+	private func pageStart(centering index: Int) -> Int {
+		let area = textArea
+		return pageStart(before: index, filling: (area.height - height(ofUnit: index, width: area.width)) / 2)
+	}
+
+	/// How far back from `index` a page can start with the units before it taking at most `room`.
+	private func pageStart(before index: Int, filling room: CGFloat) -> Int {
+		let width = textArea.width
+		var used: CGFloat = 0
 		var start = index
 		while start > 0 {
-			let previous = height(ofUnit: start - 1, width: area.width) + gap(after: start - 1)
-			if used + previous > area.height { break }
+			let previous = height(ofUnit: start - 1, width: width) + gap(after: start - 1)
+			if used + previous > room { break }
 			used += previous
 			start -= 1
 		}
@@ -231,6 +247,10 @@ final class BookView: UIScrollView {
 	override func layoutSubviews() {
 		super.layoutSubviews()
 		contentSize = CGSize(width: bounds.width, height: bounds.height + 1)
+		if let index = pendingCenter, !bounds.isEmpty {
+			pendingCenter = nil
+			pageStart = pageStart(centering: index)
+		}
 		showPage(from: pageStart)
 		// A taller text size or a rotation can push the focused unit off the page it was on.
 		if !isOnPage(focusedUnit) { showPage(from: focusedUnit) }
@@ -275,6 +295,7 @@ final class BookView: UIScrollView {
 		guard model.count > 0 else { return }
 		let index = min(max(index, 0), model.count - 1)
 		focusedUnit = index
+		pendingCenter = nil
 		if pageFrames.isEmpty { pageStart = index }
 		if startingPage {
 			if index != pageStart { showPage(from: index) }
@@ -282,6 +303,22 @@ final class BookView: UIScrollView {
 		}
 		guard !isOnPage(index) else { return }
 		showPage(from: index < pageStart ? pageStart(endingAt: index) : index)
+	}
+
+	/// Lays out the page with `index` in its middle, for landing on the reader's place when the book opens. Before the
+	/// view has a size, the page is laid out around it on the first layout.
+	func center(on index: Int) {
+		guard model.count > 0 else { return }
+		let index = min(max(index, 0), model.count - 1)
+		focusedUnit = index
+		// An empty view's text area is inset into a negative rectangle, which still reports a width.
+		guard !bounds.isEmpty else {
+			pageStart = index
+			pendingCenter = index
+			return
+		}
+		pendingCenter = nil
+		showPage(from: pageStart(centering: index))
 	}
 
 	var lastUnitOnPage: Int { pageStart + max(pageFrames.count - 1, 0) }
@@ -300,6 +337,7 @@ final class BookView: UIScrollView {
 	}
 
 	func unitBecameFocused(_ index: Int) {
+		guard acceptsFocus(index) else { return }
 		reveal(index)
 		trimElements()
 		onFocusChange?(index)

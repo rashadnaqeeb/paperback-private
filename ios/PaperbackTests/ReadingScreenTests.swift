@@ -193,6 +193,62 @@ final class BookViewTests: XCTestCase {
 		XCTAssertEqual(view.firstUnitOnPage, first)
 	}
 
+	func testCenteringPutsTheUnitInTheMiddleOfThePage() {
+		let view = view(paragraphs: 200)
+		view.center(on: 100)
+		XCTAssertLessThan(view.firstUnitOnPage, 100)
+		XCTAssertGreaterThan(view.lastUnitOnPage, 100)
+		XCTAssertEqual(view.frame(forUnit: 100).midY, view.bounds.midY, accuracy: view.bounds.height / 8)
+	}
+
+	func testCenteringBeforeTheFirstLayoutWaitsForIt() {
+		let session = TextSession(noHandle: .init())
+		session.buffer = (0..<200).map { "Paragraph \($0)" }.joined(separator: "\n")
+		let view = BookView(model: BookModel(session: session))
+		view.center(on: 100)
+		view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+		view.layoutIfNeeded()
+		XCTAssertLessThan(view.firstUnitOnPage, 100)
+		XCTAssertGreaterThan(view.lastUnitOnPage, 100)
+	}
+
+	func testCenteringTheFirstUnitStartsThePage() {
+		let view = view(paragraphs: 200)
+		view.center(on: 0)
+		XCTAssertEqual(view.firstUnitOnPage, 0)
+	}
+
+	func testRefusedFocusNeitherTurnsThePageNorReportsAMove() {
+		let view = view(paragraphs: 200)
+		view.reveal(100)
+		var moved: Int?
+		view.acceptsFocus = { $0 != 0 }
+		view.onFocusChange = { moved = $0 }
+		view.unitBecameFocused(0)
+		XCTAssertEqual(view.firstUnitOnPage, 100)
+		XCTAssertNil(moved)
+	}
+
+	func testStrayFocusOnOpeningIsNotSavedAsThePosition() {
+		let session = TextSession(noHandle: .init())
+		session.buffer = (0..<2000).map { "Paragraph \($0)" }.joined(separator: "\n")
+		let model = BookModel(session: session)
+		let controller = ReadingViewController(model: model, startUnit: 1000)
+		var saved: [Int64] = []
+		controller.onPositionChange = { saved.append($0) }
+		controller.loadViewIfNeeded()
+		let view = controller.view as! BookView
+		view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+		view.layoutIfNeeded()
+		view.unitBecameFocused(0)
+		XCTAssertTrue(saved.isEmpty)
+		XCTAssertLessThan(view.firstUnitOnPage, 1000)
+		XCTAssertGreaterThan(view.lastUnitOnPage, 1000)
+		// The reader flicking on from the restored paragraph counts.
+		view.unitBecameFocused(1001)
+		XCTAssertEqual(saved, [model.position(ofUnit: 1001)])
+	}
+
 	func testSwipingTurnsWholePages() {
 		let view = view(paragraphs: 200)
 		view.reveal(0)
