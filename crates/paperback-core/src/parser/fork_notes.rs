@@ -68,8 +68,10 @@ pub(super) fn link_bare_notes(doc: &mut Document) -> usize {
 	matches.len()
 }
 
-/// The candidate references, the notes, and which reference goes with which note.
-fn plan(doc: &Document) -> Option<(Vec<Reference>, Vec<Note>, Vec<(usize, usize)>)> {
+/// The candidate references, the notes, and which reference goes with which note (indexes into the two lists).
+type Plan = (Vec<Reference>, Vec<Note>, Vec<(usize, usize)>);
+
+fn plan(doc: &Document) -> Option<Plan> {
 	let lines = lines(doc);
 	let notes_line = notes_heading(&lines)?;
 	let notes: Vec<Note> = note_groups(&lines, notes_line).into_iter().flatten().collect();
