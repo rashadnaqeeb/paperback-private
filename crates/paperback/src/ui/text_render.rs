@@ -104,8 +104,13 @@ pub(super) fn append_slice_to_ctrl(text_ctrl: TextCtrl, slice: &WindowSlice) -> 
 	}
 	// Plain-text path: the same one `fill_text_ctrl_with_formatting` falls back to, with the
 	// segments shifted past what is already loaded so they land on the text just appended.
+	// wxWidgets leaves the caret at the end of whatever it appended. Left there, the timer that
+	// called this sees a caret at the new loaded end and appends again, until a forward read
+	// lands on the last line of the book.
+	let (sel_start, sel_end) = text_ctrl.get_selection();
 	let base = text_ctrl.get_last_position();
 	text_ctrl.append_text(content);
+	text_ctrl.set_selection(sel_start, sel_end);
 	if text_ctrl.get_last_position() <= base {
 		return false;
 	}
