@@ -64,7 +64,7 @@ impl DocumentSession {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::document::{Document, DocumentBuffer, DocumentHandle, Marker, ParserFlags};
+	use crate::document::{Document, DocumentBuffer, DocumentHandle, Marker, ParseSettings, ParserFlags};
 
 	fn session(content: &str, markers: Vec<Marker>) -> DocumentSession {
 		let mut buffer = DocumentBuffer::with_content(content.to_string());
@@ -79,6 +79,7 @@ mod tests {
 			history: Vec::new(),
 			history_index: 0,
 			parser_flags: ParserFlags::empty(),
+			parse_settings: ParseSettings::default(),
 		}
 	}
 

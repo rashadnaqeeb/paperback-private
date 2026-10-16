@@ -29,6 +29,16 @@ struct PlayerView: View {
 					// it sits, so VoiceOver reading both would say the same words twice.
 					.accessibilityHidden(true)
 			}
+			if let percent = progressPercent {
+				// The text below says the same number, so the bar is for the eye only.
+				ProgressView(value: Double(percent), total: 100)
+					.padding(.horizontal, 24)
+					.accessibilityHidden(true)
+				// TRANSLATORS: How far through the document the reader has got, shown under the read-aloud progress bar; {} is a whole-number percentage
+				Text(t("{}% through").replacingOccurrences(of: "{}", with: "\(percent)"))
+					.font(.caption)
+					.foregroundStyle(.secondary)
+			}
 			if let remaining = viewModel.reading.sleepTimerRemaining {
 				Text(String(format: "Sleep timer: %d:%02d", remaining / 60, remaining % 60))
 					.font(.caption)
@@ -38,6 +48,12 @@ struct PlayerView: View {
 		}
 		// The scrub is the standard way out of a screen, so it leaves the book.
 		.accessibilityAction(.escape) { viewModel.closeBook() }
+	}
+
+	/// How far through the document the reading position is. An audio-only book goes without: its text is one blank line per narration file, so a share of it says nothing about how far in the reader is.
+	private var progressPercent: Int? {
+		guard let session = viewModel.activeSession, !viewModel.reading.isAudioOnly else { return nil }
+		return Int(session.getStatusInfo(position: viewModel.reading.position).percentage)
 	}
 
 	/// The line under the reading position, shown small beneath the narrated text as a place marker.

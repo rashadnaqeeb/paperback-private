@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: paperback 0.8\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-08 12:00+0000\n"
+"POT-Creation-Date: 2026-10-13 22:23+0000\n"
 "PO-Revision-Date: 2026-09-24 20:59+0200\n"
 "Last-Translator: Steffen Schultz <steffenschultz@mailbox.org>\n"
 "Language-Team: Steffen Schultz <steffenschultz@mailbox.org>\n"
@@ -26,6 +26,50 @@ msgstr ""
 "X-Poedit-SearchPathExcluded-1: vcpkg\n"
 "X-Poedit-SearchPathExcluded-2: web\n"
 "X-Poedit-SearchPathExcluded-3: po\n"
+
+#. TRANSLATORS: Follows text typed into Open from URL that is not an http or https link
+#, fuzzy
+msgid "this is not a web link"
+msgstr "Das ist kein Weblink"
+
+#. TRANSLATORS: Download window message while Paperback asks a web server about a link; %s is the link
+#, fuzzy
+msgid "Checking %s"
+msgstr "Überprüfe %s"
+
+#. TRANSLATORS: Download window message while Paperback asks a web server about one of several links; the first %d is the link's number, the second how many links there are, and %s is the link
+#, fuzzy
+msgid "Checking %d of %d: %s"
+msgstr "Überprüfe %d von %d: %s"
+
+#. TRANSLATORS: Download window message while a document opened from a link downloads; %s is its file name
+#, fuzzy
+msgid "Downloading %s"
+msgstr "Lade %s herunter"
+
+#. TRANSLATORS: Download window message while one of several documents opened from links downloads; the first %d is its number, the second how many there are, and %s is its file name
+#, fuzzy
+msgid "Downloading %d of %d: %s"
+msgstr "Lade %d von %d herunter: %s"
+
+#. TRANSLATORS: Security warning before downloading a document from a link; %s is the type the server gave, such as text/html
+#, fuzzy
+msgid "The server sends a web page (%s) instead of the document the link names."
+msgstr "Der Server sendet eine Webseite (%s) statt des Dokuments, das der Link benennt."
+
+#, fuzzy
+msgid "The server sends %s, which is not a format Paperback reads."
+msgstr "Der Server sendet %s, ein Format, das Paperback nicht liest."
+
+#. TRANSLATORS: Security warning before downloading a document from a link whose server gave no type
+#, fuzzy
+msgid "The server does not say what it sends."
+msgstr "Der Server teilt nicht mit, was er sendet."
+
+#. TRANSLATORS: Question at the end of the security warning before downloading a document from a link
+#, fuzzy
+msgid "Download it anyway?"
+msgstr "Trotzdem herunterladen?"
 
 #. TRANSLATORS: Checkbox label in the Linux setup dialog, offering to make the `pb`
 #. command-line tool (Paperback's headless document-to-text/HTML converter) runnable
@@ -62,6 +106,7 @@ msgstr "Warnung"
 #. TRANSLATORS: Announced when trying to play/pause audio on a document that has none
 #. TRANSLATORS: Announced when trying to seek audio on a document that has none
 #. TRANSLATORS: Announced when trying to change audio playback speed on a document that has none
+#. TRANSLATORS: Announced when trying to change audio volume on a document that has none
 msgid "This document has no audio."
 msgstr "Dieses Dokument hat kein Audio."
 
@@ -70,11 +115,13 @@ msgid "Audio hasn't started playing yet."
 msgstr "Audiowiedergabe hat noch nicht begonnen."
 
 #. TRANSLATORS: Announced when the audio speed is already at its fastest; {} is the current speed, e.g. "2x"
+#. TRANSLATORS: Announced when the audio volume is already at its loudest; {} is the current volume, e.g. "200%"
 #. TRANSLATORS: Announced when the audio seek amount is already at its largest preset; {} is the current amount, e.g. "1 hour"
 msgid "{} (maximum)"
 msgstr "{} (Maximum)"
 
 #. TRANSLATORS: Announced when the audio speed is already at its slowest; {} is the current speed, e.g. "0.5x"
+#. TRANSLATORS: Announced when the audio volume is already at its quietest; {} is the current volume, e.g. "10%"
 #. TRANSLATORS: Announced when the audio seek amount is already at its smallest preset; {} is the current amount, e.g. "5 seconds"
 msgid "{} (minimum)"
 msgstr "{} (Minimum)"
@@ -193,6 +240,14 @@ msgstr "Notiz ansehen"
 msgid "Open Document"
 msgstr "Dokument öffnen"
 
+#. TRANSLATORS: Title of the error shown when what was typed into Open from URL is not a web link
+#. TRANSLATORS: Title of the dialog that asks for the web link to open a document from
+#. TRANSLATORS: Title of the window that shows documents being downloaded from links
+#. TRANSLATORS: Title of the error listing the links that could not be opened
+#, fuzzy
+msgid "Open from URL"
+msgstr "Aus URL öffnen"
+
 #. TRANSLATORS: Announced by screen readers after a document was re-read from disk, either because the reader asked for it with F5 or because its file changed on disk
 msgid "Document reloaded."
 msgstr "Dokument neu geladen."
@@ -213,6 +268,16 @@ msgstr "Ö&ffnen..."
 #. TRANSLATORS: Status-bar help text for the File > Open menu item.
 msgid "Open a document"
 msgstr "Ein Dokument öffnen"
+
+#. TRANSLATORS: Menu item in the File menu to open documents from web links.
+#, fuzzy
+msgid "Open from &URL..."
+msgstr "Aus &URL öffnen..."
+
+#. TRANSLATORS: Status-bar help text for the File > Open from URL menu item.
+#, fuzzy
+msgid "Open documents from web links"
+msgstr "Dokumente aus Weblinks öffnen"
 
 #. TRANSLATORS: Menu item in the File menu to close the current document.
 msgid "&Close"
@@ -612,6 +677,26 @@ msgstr "&Audio-Geschwindigkeit verringern"
 msgid "Decrease how fast the audio narration plays"
 msgstr "Verringert die Vorlesegeschwindigkeit"
 
+#. TRANSLATORS: Menu item in the Audio menu to make the audio narration louder.
+#, fuzzy
+msgid "Increase Audio &Volume"
+msgstr "Audioausgabe &lauter"
+
+#. TRANSLATORS: Status-bar help text for the Increase Audio Volume menu item.
+#, fuzzy
+msgid "Make the audio narration louder"
+msgstr "Macht die Audioerzählung lauter"
+
+#. TRANSLATORS: Menu item in the Audio menu to make the audio narration quieter.
+#, fuzzy
+msgid "Decrease Audio Vo&lume"
+msgstr "Audioausgabe &leiser"
+
+#. TRANSLATORS: Status-bar help text for the Decrease Audio Volume menu item.
+#, fuzzy
+msgid "Make the audio narration quieter"
+msgstr "Macht die Audioerzählung leiser"
+
 #. TRANSLATORS: Description/tagline of the application shown in the About dialog
 msgid "An accessible, lightweight, fast ebook and document reader"
 msgstr "Ein barrierefreier, schlanker und schneller E-Book- und Dokumentenleser"
@@ -997,6 +1082,16 @@ msgstr "HTML"
 msgid "Markdown"
 msgstr "Markdown"
 
+#. TRANSLATORS: Label of the field in Open from URL, which takes the web link of a document
+#, fuzzy
+msgid "Link:"
+msgstr "Link:"
+
+#. TRANSLATORS: Title of the security warning shown before downloading a document from a link
+#, fuzzy
+msgid "Security Warning"
+msgstr "Sicherheitswarnung"
+
 #. TRANSLATORS: Description text shown when the background color is set to default
 msgid "Background: Default"
 msgstr "Hintergrund: Standard"
@@ -1110,6 +1205,11 @@ msgstr "Zeilenumbrüche in PDF-Dateien zu Absätzen &zusammenführen"
 #, fuzzy
 msgid "Remove repeated page &headers and footers in PDFs"
 msgstr "Wiederholte Seiten&kopf- und -fußzeilen in PDFs entfernen"
+
+#. TRANSLATORS: Option to read text between dollar signs in Markdown documents, such as $x^2$, as a math formula. Turning it off keeps the dollar signs as plain text, which suits documents that use them for other things, such as shell variables or prices.
+#, fuzzy
+msgid "Read text between dollar signs as &math in Markdown"
+msgstr "Text zwischen Dollarzeichen in &Markdown als Mathematik lesen"
 
 #. TRANSLATORS: Option to show a compact Go navigation menu in the menu bar
 msgid "Show compact &go menu"
@@ -1362,6 +1462,16 @@ msgid_plural "This document contains %d words."
 msgstr[0] "Dieses Dokument enthält %d Wort."
 msgstr[1] "Dieses Dokument enthält %d Worte."
 
+#. TRANSLATORS: Title of the dialog listing the documents inside a zip archive
+#, fuzzy
+msgid "Open from Archive"
+msgstr "Aus Archiv öffnen"
+
+#. TRANSLATORS: Label for the list of documents inside a zip archive
+#, fuzzy
+msgid "&Documents in this archive:"
+msgstr "&Dokumente in diesem Archiv:"
+
 #. TRANSLATORS: A group of entries in the table of contents or the headings tree, when a book has too many to list under one heading. The first {} is the first entry in the group, the second the last.
 msgid "{} to {}"
 msgstr "{} bis {}"
@@ -1527,6 +1637,11 @@ msgstr "Keine weiteren Ergebnisse. Beginne von vorn."
 msgid "Failed to reveal file in folder."
 msgstr "Anzeigen der Datei im Ordner fehlgeschlagen."
 
+#. TRANSLATORS: Shown by Reveal File in Folder for a document opened from a web link, which is read from a temporary copy
+#, fuzzy
+msgid "This document was opened from a link, so it has no folder to show."
+msgstr "Dieses Dokument wurde aus einem Link geöffnet, daher gibt es keinen Ordner zu zeigen."
+
 #. TRANSLATORS: Error shown when the bundled help/readme file could not be located on disk
 msgid "readme.html not found. Please ensure the application was built properly."
 msgstr "readme.html nicht gefunden. Bitte stelle sicher, dass die Anwendung korrekt erstellt wurde."
@@ -1543,6 +1658,17 @@ msgstr "Die Spendenseite konnte nicht im Browser geöffnet werden."
 msgid "Paperback cannot perform any actions while Web View is open."
 msgstr "Paperback kann keine Aktionen ausführen, während Web-View geöffnet ist."
 
+#. TRANSLATORS: First message in the window that downloads documents from links, before the first server answers
+#, fuzzy
+msgid "Connecting..."
+msgstr "Verbinde..."
+
+#. TRANSLATORS: Title of the window that shows a document opened from a link being downloaded again
+#. TRANSLATORS: Name of this keyboard-shortcut action, shown in the Customize Keyboard Shortcuts dialog (its list of assignable actions, and the "Set Shortcut for {}" / conflict-reassignment prompts).
+#, fuzzy
+msgid "Reload"
+msgstr "Aktualisieren"
+
 #. TRANSLATORS: Announced when the copy shortcut is pressed with nothing selected, so there was nothing to put on the clipboard.
 #. TRANSLATORS: Announced when a copy had nothing to copy: no text was selected, or the marked beginning of a selection is at the reader's own position, leaving nothing between the two.
 msgid "Nothing to copy."
@@ -1551,6 +1677,13 @@ msgstr "Nichts zu kopieren."
 #. TRANSLATORS: Announced when the copy ran but the text could not be put on the clipboard, so nothing was copied.
 msgid "Could not copy to the clipboard."
 msgstr "Das Kopieren in die Zwischenablage ist fehlgeschlagen."
+
+#. TRANSLATORS: Announced after Select All, from the Edit menu or with Ctrl+A. The %d placeholder is replaced with the number of characters in the document. Plural form is chosen by that count.
+#, fuzzy
+msgid "Selected %d character."
+msgid_plural "Selected %d characters."
+msgstr[0] "Selected %d character."
+msgstr[1] "Selected %d characters."
 
 #. TRANSLATORS: Announced when toggling word wrap; the message reflects the new state
 msgid "Word wrap on."
@@ -1665,6 +1798,11 @@ msgstr "Quellansicht ist für dieses Dokumentformat nicht verfügbar."
 msgid "Could not load the document source."
 msgstr "Die Dokumentenquelle konnte nicht geladen werden."
 
+#. TRANSLATORS: Error shown when a document inside a zip archive can't be extracted; {} is the underlying error
+#, fuzzy
+msgid "Couldn't extract the document from the archive: {}"
+msgstr "Das Dokument konnte nicht aus dem Archiv extrahiert werden: {}"
+
 #. TRANSLATORS: Error shown when the user picks a file format from the "Open As" dialog that this parser build doesn't support
 msgid "Unsupported format selected."
 msgstr "Ungültiges Format gewählt."
@@ -1682,28 +1820,34 @@ msgid "{} - Paperback"
 msgstr "{} - Paperback"
 
 #. TRANSLATORS: Menu item in the Edit menu to undo the last action.
-msgid "&Undo\tCtrl+Z"
-msgstr "&Rückgängig\tCtrl+Z"
+#, fuzzy
+msgid "&Undo"
+msgstr "&Rückgängig"
 
 #. TRANSLATORS: Menu item in the Edit menu to redo the last undone action.
-msgid "&Redo\tCtrl+Shift+Z"
-msgstr "&Wiederherstellen\tCtrl+Shift+Z"
+#, fuzzy
+msgid "&Redo"
+msgstr "&Wiederherstellen"
 
 #. TRANSLATORS: Menu item in the Edit menu to cut the current selection.
-msgid "Cu&t\tCtrl+X"
-msgstr "Aus&schneiden\tCtrl+X"
+#, fuzzy
+msgid "Cu&t"
+msgstr "Ausschne&iden"
 
 #. TRANSLATORS: Menu item in the Edit menu to copy the current selection.
-msgid "&Copy\tCtrl+C"
-msgstr "&Kopieren\tCtrl+C"
+#, fuzzy
+msgid "&Copy"
+msgstr "&Kopieren"
 
 #. TRANSLATORS: Menu item in the Edit menu to paste from the clipboard.
-msgid "&Paste\tCtrl+V"
-msgstr "&Einfügen\tCtrl+V"
+#, fuzzy
+msgid "&Paste"
+msgstr "&Einfügen"
 
 #. TRANSLATORS: Menu item in the Edit menu to select all text.
-msgid "Select &All\tCtrl+A"
-msgstr "&Alle auswählen\tCtrl+A"
+#, fuzzy
+msgid "Select &All"
+msgstr "&Alles auswählen"
 
 #. TRANSLATORS: Menu item in the Edit menu to open the find dialog.
 msgid "&Find..."
@@ -2292,10 +2436,11 @@ msgid "Go to percent"
 msgstr "Gehe zu Prozent"
 
 #. TRANSLATORS: Announced after text is copied, with Ctrl+C or from the marked beginning of a selection. The %d placeholder is replaced with the number of characters copied. Plural form is chosen by that count.
+#, fuzzy
 msgid "Copied %d character."
 msgid_plural "Copied %d characters."
-msgstr[0] ""
-msgstr[1] ""
+msgstr[0] "Copied %d character."
+msgstr[1] "Copied %d characters."
 
 #. TRANSLATORS: Announced when the reader marks the beginning of a selection to copy from later.
 msgid "Beginning of selection set."
@@ -2351,17 +2496,17 @@ msgid "Open..."
 msgstr "Öffnen..."
 
 #. TRANSLATORS: Name of this keyboard-shortcut action, shown in the Customize Keyboard Shortcuts dialog (its list of assignable actions, and the "Set Shortcut for {}" / conflict-reassignment prompts).
+#, fuzzy
+msgid "Open from URL..."
+msgstr "Aus URL öffnen..."
+
+#. TRANSLATORS: Name of this keyboard-shortcut action, shown in the Customize Keyboard Shortcuts dialog (its list of assignable actions, and the "Set Shortcut for {}" / conflict-reassignment prompts).
 msgid "Close All"
 msgstr "Alle schließen"
 
 #. TRANSLATORS: Name of this keyboard-shortcut action, shown in the Customize Keyboard Shortcuts dialog (its list of assignable actions, and the "Set Shortcut for {}" / conflict-reassignment prompts).
 msgid "Reopen Last Closed"
 msgstr "Letztes Dokument erneut öffnen"
-
-#. TRANSLATORS: Name of this keyboard-shortcut action, shown in the Customize Keyboard Shortcuts dialog (its list of assignable actions, and the "Set Shortcut for {}" / conflict-reassignment prompts).
-#, fuzzy
-msgid "Reload"
-msgstr "Aktualisieren"
 
 #. TRANSLATORS: Name of this keyboard-shortcut action, shown in the Customize Keyboard Shortcuts dialog (its list of assignable actions, and the "Set Shortcut for {}" / conflict-reassignment prompts).
 msgid "Show All Recent Documents..."
@@ -2640,6 +2785,16 @@ msgstr "Audiogeschwindigkeit erhöhen"
 #. TRANSLATORS: Name of this keyboard-shortcut action, shown in the Customize Keyboard Shortcuts dialog (its list of assignable actions, and the "Set Shortcut for {}" / conflict-reassignment prompts).
 msgid "Decrease Audio Speed"
 msgstr "Audiogeschwindigkeit verringern"
+
+#. TRANSLATORS: Name of this keyboard-shortcut action, shown in the Customize Keyboard Shortcuts dialog (its list of assignable actions, and the "Set Shortcut for {}" / conflict-reassignment prompts).
+#, fuzzy
+msgid "Increase Audio Volume"
+msgstr "Audioausgabe lauter"
+
+#. TRANSLATORS: Name of this keyboard-shortcut action, shown in the Customize Keyboard Shortcuts dialog (its list of assignable actions, and the "Set Shortcut for {}" / conflict-reassignment prompts).
+#, fuzzy
+msgid "Decrease Audio Volume"
+msgstr "Audioausgabe leiser"
 
 #. TRANSLATORS: Name of this keyboard-shortcut action, shown in the Customize Keyboard Shortcuts dialog (its list of assignable actions, and the "Set Shortcut for {}" / conflict-reassignment prompts).
 msgid "Full Screen"
@@ -3770,8 +3925,8 @@ msgstr "Dieses Dokument hat kein Inhaltsverzeichnis."
 msgid "Navigation unit"
 msgstr "Navigationseinheit"
 
-#. TRANSLATORS: Accessibility label for the "previous unit" button; {} is the current navigation unit name, e.g. "Previous Paragraph"
-#: kt swift
+#. TRANSLATORS: Accessibility label for the "previous" button when navigating audio by time; {} is an amount like "30 seconds"
+#: swift
 msgid "Previous {}"
 msgstr "Vorheriges {}"
 
@@ -3795,8 +3950,8 @@ msgstr "Ende des Dokuments"
 msgid "Beginning of document"
 msgstr "Anfang des Dokuments"
 
-#. TRANSLATORS: Accessibility label for the "next unit" button; {} is the current navigation unit name, e.g. "Next Paragraph"
-#: kt swift
+#. TRANSLATORS: Accessibility label for the "next" button when navigating audio by time; {} is an amount like "30 seconds"
+#: swift
 msgid "Next {}"
 msgstr "Nächster {}"
 
@@ -4281,7 +4436,7 @@ msgid "File Manager"
 msgstr "Dateimanager"
 
 #. TRANSLATORS: How far through the document the reader has got, shown under the read-aloud progress bar; {} is a whole-number percentage
-#: kt
+#: swift kt
 msgid "{}% through"
 msgstr "{}% durchgelesen"
 
@@ -4434,6 +4589,96 @@ msgstr "Sprache"
 #, fuzzy
 msgid "Opens Paperback in the Settings app, where its language can be changed."
 msgstr "Öffnet Paperback in der Einstellungs-App, wo die Sprache geändert werden kann."
+
+#. TRANSLATORS: Accessibility label for the read-aloud bar's previous button when navigating by paragraph
+#: kt swift
+#, fuzzy
+msgid "Previous Paragraph"
+msgstr "Vorheriger Absatz"
+
+#. TRANSLATORS: Accessibility label for the read-aloud bar's previous button when navigating by line
+#: kt swift
+#, fuzzy
+msgid "Previous Line"
+msgstr "Vorherige Zeile"
+
+#. TRANSLATORS: Accessibility label for the read-aloud bar's next button when navigating by paragraph
+#: kt swift
+#, fuzzy
+msgid "Next Paragraph"
+msgstr "Nächster Absatz"
+
+#. TRANSLATORS: Accessibility label for the read-aloud bar's next button when navigating by line
+#: kt swift
+#, fuzzy
+msgid "Next Line"
+msgstr "Nächste Zeile"
+
+#. TRANSLATORS: TalkBack action on the top bar's overflow button, which opens its menu
+#: kt
+#, fuzzy
+msgid "Show all options in a menu"
+msgstr "Alle Optionen in einem Menü anzeigen"
+
+#. TRANSLATORS: TalkBack action on a document tab that closes it; {} is the document's title
+#: kt
+#, fuzzy
+msgid "Close {}"
+msgstr "{} schließen"
+
+#. TRANSLATORS: TalkBack action on the read-aloud bar's unit selector, which opens the list of navigation units
+#: kt
+#, fuzzy
+msgid "Select navigation unit"
+msgstr "Navigationskriterium wählen"
+
+#. TRANSLATORS: TalkBack action on the read-aloud bar's speech rate control, which opens the list of rates
+#: kt
+#, fuzzy
+msgid "Select speech rate"
+msgstr "Sprechgeschwindigkeit wählen"
+
+#. TRANSLATORS: Title of the file manager's top level, which lists the device's storage volumes
+#: kt
+#, fuzzy
+msgid "Storage Devices"
+msgstr "Speichergeräte"
+
+#. TRANSLATORS: TalkBack label for the file manager's row that goes up a folder; {} is the parent folder's name
+#: kt
+#, fuzzy
+msgid "Go up to parent directory: {}"
+msgstr "Zum übergeordneten Verzeichnis gehen: {}"
+
+#. TRANSLATORS: Toggle controlling whether TTS stops after the paragraph containing a Find match while Find is the navigation unit
+#: swift kt
+#, fuzzy
+msgid "Stop reading after search matches"
+msgstr "Vorlesen nach Suchergebnissen stoppen"
+
+#. TRANSLATORS: Explanation of the Find playback setting; turning it off lets reading continue without changing the navigation unit
+#: swift kt
+#, fuzzy
+msgid "Turn off to continue reading while navigating by search matches."
+msgstr "Ausschalten, um weiterzulesen und gleichzeitig nach Suchergebnissen zu navigieren."
+
+#~ msgid "&Undo\tCtrl+Z"
+#~ msgstr "&Rückgängig\tCtrl+Z"
+
+#~ msgid "&Redo\tCtrl+Shift+Z"
+#~ msgstr "&Wiederherstellen\tCtrl+Shift+Z"
+
+#~ msgid "Cu&t\tCtrl+X"
+#~ msgstr "Aus&schneiden\tCtrl+X"
+
+#~ msgid "&Copy\tCtrl+C"
+#~ msgstr "&Kopieren\tCtrl+C"
+
+#~ msgid "&Paste\tCtrl+V"
+#~ msgstr "&Einfügen\tCtrl+V"
+
+#~ msgid "Select &All\tCtrl+A"
+#~ msgstr "&Alle auswählen\tCtrl+A"
 
 #~ msgid "&View Note Text"
 #~ msgstr "Notiztext &ansehen"

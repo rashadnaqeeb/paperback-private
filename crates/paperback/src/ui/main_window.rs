@@ -18,11 +18,13 @@ use super::{
 };
 use crate::{
 	config_ext::{UpdateChannel, get_update_channel},
+	ipc::Target,
 	updater,
 };
 
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 mod ipc;
+mod links;
 #[cfg(not(target_os = "macos"))]
 mod menu_edit;
 mod menu_events;
@@ -33,7 +35,8 @@ mod menu_view;
 mod parser_ready;
 mod restore;
 mod window_events;
-pub(crate) use parser_ready::ensure_parser_ready_for_path;
+pub use links::{download_again, open_links};
+pub(crate) use parser_ready::{ensure_parser_ready_for_path, resolve_zip_path};
 
 #[cfg(target_os = "windows")]
 mod hotkey;
@@ -178,17 +181,30 @@ impl MainWindow {
 		updater::run_update_check(&self.frame, silent, channel);
 	}
 
-	pub fn open_file(&self, path: &Path) -> bool {
-		if !self.ensure_parser_ready(path) {
+	pub fn open_file(&self, path: &Path, quit_if_picker_closed: bool) -> bool {
+		let Some(path) = resolve_zip_path(&self.frame, path, &self.config, quit_if_picker_closed) else {
+			return false;
+		};
+		if !self.ensure_parser_ready(&path) {
 			return false;
 		}
-		let result = self.doc_manager.lock().unwrap().open_file(&self.doc_manager, path);
+		let result = self.doc_manager.lock().unwrap().open_file(&self.doc_manager, &path);
 		if result {
 			self.update_title();
 			self.update_recent_documents_menu();
 			self.doc_manager.lock().unwrap().focus_document_text();
 		}
 		result
+	}
+
+	/// Opens what a command line or another Paperback names: a file, or a document behind a link.
+	pub fn open_target(&self, target: Target, quit_if_picker_closed: bool) {
+		match target {
+			Target::File(path) => {
+				self.open_file(&path, quit_if_picker_closed);
+			}
+			Target::Link(link) => open_links(&self.frame, &self.doc_manager, &self.config, vec![link]),
+		}
 	}
 
 	fn update_title(&self) {
@@ -277,7 +293,7 @@ pub(crate) fn update_title_from_manager(frame: &Frame, dm: &DocumentManager) {
 		let template = t("{} - Paperback");
 		frame.set_title(&template.replace("{}", &display_title(tab)));
 		#[cfg(target_os = "macos")]
-		frame.set_represented_filename(&tab.file_path.to_string_lossy());
+		frame.set_represented_filename(&tab.local_path().to_string_lossy());
 		let position = navigation::doc_caret(tab);
 		let status_info = tab.session.get_status_info(position);
 		let mut status_text = status::format_status_text(&status_info);
