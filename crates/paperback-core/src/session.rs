@@ -10,6 +10,7 @@ mod audio;
 mod export;
 mod find_all;
 mod fork_ffi;
+mod images;
 mod links;
 mod navigation;
 mod search;
