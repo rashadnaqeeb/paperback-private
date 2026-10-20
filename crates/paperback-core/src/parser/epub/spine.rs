@@ -22,7 +22,7 @@ use crate::{
 			html_to_text::{HtmlSourceMode, HtmlToText},
 			xml_to_text::XmlToText,
 		},
-		is_data_uri,
+		fork_spacing, is_data_uri,
 	},
 	t,
 	types::{
@@ -131,8 +131,8 @@ pub(super) fn convert_spine_items(
 				let archive = archive_result.as_mut().map_err(|err| format!("{} ({err})", item.path))?;
 				let data =
 					read_zip_entry_by_name(archive, &item.path).map_err(|err| format!("{} ({err})", item.path))?;
-				let section =
-					convert_section(&data, render_tables_inline).map_err(|err| format!("{} ({err})", item.path))?;
+				let section = convert_section(&fork_spacing::tidy_markup(&data), render_tables_inline)
+					.map_err(|err| format!("{} ({err})", item.path))?;
 				Ok((item, section))
 			},
 		)

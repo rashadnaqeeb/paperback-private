@@ -25,6 +25,7 @@ pub mod epub;
 pub mod fb2;
 mod fork_joins;
 mod fork_notes;
+mod fork_spacing;
 pub mod hlp;
 pub mod html;
 pub mod m4b;
